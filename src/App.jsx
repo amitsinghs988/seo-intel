@@ -360,15 +360,27 @@ export default function App() {
     });
 
     es.addEventListener('error', (e) => {
+      // This listener receives BOTH server-sent named "error" events (which carry a
+      // JSON data payload) AND native EventSource connection errors (no data). The
+      // latter is expected on serverless hosts like Vercel that can't hold a long-lived
+      // SSE stream. Only surface a real failure when the server actually sent an error
+      // payload; otherwise close the stream quietly and let the POST response drive the UI.
+      let payload = null;
+      if (e && typeof e.data === 'string' && e.data) {
+        try { payload = JSON.parse(e.data); } catch (parseErr) { payload = null; }
+      }
+
       if (eventSourceRef.current) eventSourceRef.current.close();
-      const err = JSON.parse(e.data);
-      setCrawlState(prev => ({
-        ...prev,
-        status: 'error',
-        error: err.error
-      }));
-      window.history.replaceState(null, '', '/');
-      alert(`Crawl failed: ${err.error}`);
+
+      if (payload && payload.error) {
+        setCrawlState(prev => ({
+          ...prev,
+          status: 'error',
+          error: payload.error
+        }));
+        window.history.replaceState(null, '', '/');
+        alert(`Crawl failed: ${payload.error}`);
+      }
     });
 
     es.addEventListener('cancelled', (e) => {
