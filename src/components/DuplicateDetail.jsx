@@ -572,8 +572,14 @@ export default function DuplicateDetail({ pageData, pages = [], initialTab, onTa
                     {audit.status === 'optimal' ? '✅' : '⚠️'}
                   </span>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 700, color: 'var(--text-dark)' }}>{audit.message}</div>
-                    <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginTop: '0.15rem' }}>{audit.desc}</div>
+                    <div style={{ fontWeight: 700, color: 'var(--text-dark)' }}>
+                      {audit.category ? <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>{audit.category} · </span> : null}
+                      {audit.message}
+                    </div>
+                    {/* On-page audits carry actual/recommended (not desc) */}
+                    <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginTop: '0.15rem' }}>
+                      {audit.desc || (audit.status === 'optimal' ? audit.actual : audit.recommended) || ''}
+                    </div>
                   </div>
                   {audit.status !== 'optimal' && (
                     <button
@@ -609,7 +615,8 @@ export default function DuplicateDetail({ pageData, pages = [], initialTab, onTa
 
             {fixIndex !== null && onPage.audits[fixIndex] ? (() => {
               const auditItem = onPage.audits[fixIndex];
-              const snippet = generateOnPageFixCode(auditItem.message, url, title);
+              // Fix snippets are keyed on the audit item name (e.g. 'Title Tag'), not the message
+              const snippet = generateOnPageFixCode(auditItem.item || auditItem.message, url, title);
               const isCopied = copiedIndex === fixIndex;
 
               return (

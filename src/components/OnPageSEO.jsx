@@ -1,7 +1,24 @@
 import { useState, useMemo } from 'react';
 
 /**
+ * The 9 technical SEO categories audited per page (mirrors the claude-seo
+ * skill's technical framework, restricted to what is measurable from crawled HTML).
+ */
+export const TECH_CATEGORIES = [
+  { key: 'Crawlability', icon: '🕷️' },
+  { key: 'Indexability', icon: '🗂️' },
+  { key: 'Security', icon: '🔒' },
+  { key: 'URL Structure', icon: '🔗' },
+  { key: 'Mobile', icon: '📱' },
+  { key: 'Performance', icon: '⚡' },
+  { key: 'Structured Data', icon: '🏷️' },
+  { key: 'Content Structure', icon: '📝' },
+  { key: 'Images', icon: '🖼️' }
+];
+
+/**
  * Calculates page-level technical SEO compliance score and feedback logs.
+ * Every audit entry is tagged with one of the 9 technical categories.
  */
 export function calculateOnPageSEO(page) {
   if (!page) page = {};
@@ -17,15 +34,210 @@ export function calculateOnPageSEO(page) {
   const schemas = page.schemas || [];
   const loadTimeMs = page.loadTimeMs || 0;
   const sizeBytes = page.sizeBytes || 0;
+  const robots = page.robots || '';
+  const canonicalUrl = page.canonicalUrl || '';
+  const httpStatus = page.status !== undefined ? page.status : 200;
+  const wordCount = page.wordCount || 0;
 
   let score = 100;
   const audits = [];
+
+  // --- Category 1: Crawlability ---
+  if (httpStatus >= 200 && httpStatus < 300) {
+    audits.push({
+      category: 'Crawlability',
+      item: 'HTTP Status',
+      status: 'optimal',
+      message: `Page reachable (HTTP ${httpStatus})`,
+      actual: `HTTP ${httpStatus}`,
+      recommended: 'Optimal'
+    });
+  } else {
+    score -= 25;
+    audits.push({
+      category: 'Crawlability',
+      item: 'HTTP Status',
+      status: 'critical',
+      message: httpStatus === 0 ? 'Page failed to load (network error)' : `Page returned HTTP ${httpStatus}`,
+      actual: httpStatus === 0 ? 'Network error' : `HTTP ${httpStatus}`,
+      recommended: 'Fix the response so the page returns HTTP 200 for crawlers.'
+    });
+  }
+
+  // robots "none" is shorthand for "noindex, nofollow"
+  const hasNoindex = /noindex|\bnone\b/i.test(robots);
+  const hasNofollow = /nofollow|\bnone\b/i.test(robots);
+  if (hasNoindex) {
+    score -= 20;
+    audits.push({
+      category: 'Indexability',
+      item: 'Robots Meta Directives',
+      status: 'critical',
+      message: 'Meta robots blocks indexing (noindex) — page is excluded from search results',
+      actual: `robots="${robots}"`,
+      recommended: 'Remove noindex unless exclusion is intentional.'
+    });
+  } else if (hasNofollow) {
+    score -= 5;
+    audits.push({
+      category: 'Indexability',
+      item: 'Robots Meta Directives',
+      status: 'warning',
+      message: 'Meta robots contains nofollow — link equity does not flow from this page',
+      actual: `robots="${robots}"`,
+      recommended: 'Remove nofollow unless intentional; it stops PageRank distribution.'
+    });
+  } else {
+    audits.push({
+      category: 'Indexability',
+      item: 'Robots Meta Directives',
+      status: 'optimal',
+      message: robots ? `Robots directives allow indexing ("${robots}")` : 'No restrictive robots directives',
+      actual: robots || 'not set',
+      recommended: 'Optimal'
+    });
+  }
+
+  // --- Category 2: Indexability ---
+  if (!canonicalUrl) {
+    score -= 5;
+    audits.push({
+      category: 'Indexability',
+      item: 'Canonical URL',
+      status: 'warning',
+      message: 'No canonical URL declared',
+      actual: 'None',
+      recommended: 'Add <link rel="canonical"> to consolidate duplicate/parameter URL variants.'
+    });
+  } else {
+    audits.push({
+      category: 'Indexability',
+      item: 'Canonical URL',
+      status: 'optimal',
+      message: 'Canonical URL declared',
+      actual: canonicalUrl,
+      recommended: 'Optimal'
+    });
+  }
+
+  // --- Category 4: URL Structure ---
+  const urlIssues = [];
+  try {
+    const parsed = new URL(url);
+    const path = parsed.pathname;
+    if (url.length > 115) urlIssues.push(`URL is long (${url.length} chars)`);
+    if (/[A-Z]/.test(path)) urlIssues.push('uppercase letters in path');
+    if (/_/.test(path)) urlIssues.push('underscores in path (use hyphens)');
+    if (parsed.search) urlIssues.push('query parameters in indexed URL');
+    const depth = path.split('/').filter(Boolean).length;
+    if (depth > 4) urlIssues.push(`deep nesting (${depth} levels)`);
+  } catch (e) { /* unparseable URL — skip structural checks */ }
+
+  if (urlIssues.length > 0) {
+    score -= Math.min(8, urlIssues.length * 4);
+    audits.push({
+      category: 'URL Structure',
+      item: 'URL Structure',
+      status: 'warning',
+      message: `URL issues: ${urlIssues.join('; ')}`,
+      actual: url,
+      recommended: 'Prefer short, lowercase, hyphenated paths under 4 levels without query strings.'
+    });
+  } else {
+    audits.push({
+      category: 'URL Structure',
+      item: 'URL Structure',
+      status: 'optimal',
+      message: 'Clean, crawlable URL structure',
+      actual: url,
+      recommended: 'Optimal'
+    });
+  }
+
+  // --- Category 6: Performance ---
+  if (loadTimeMs > 2000) {
+    score -= 10;
+    audits.push({
+      category: 'Performance',
+      item: 'Page Performance',
+      status: 'critical',
+      message: `Slow server response (${loadTimeMs} ms)`,
+      actual: `${loadTimeMs} ms / ${(sizeBytes / 1024).toFixed(0)} KB`,
+      recommended: 'Target <800 ms TTFB: enable caching/CDN and compress payloads.'
+    });
+  } else if (loadTimeMs > 1000 || sizeBytes > 1572864) {
+    score -= 5;
+    audits.push({
+      category: 'Performance',
+      item: 'Page Performance',
+      status: 'warning',
+      message: loadTimeMs > 1000 ? `Server response is sluggish (${loadTimeMs} ms)` : `Heavy HTML payload (${(sizeBytes / 1048576).toFixed(1)} MB)`,
+      actual: `${loadTimeMs} ms / ${(sizeBytes / 1024).toFixed(0)} KB`,
+      recommended: 'Aim for <800 ms response and <1.5 MB HTML for healthy Core Web Vitals (LCP/INP).'
+    });
+  } else {
+    audits.push({
+      category: 'Performance',
+      item: 'Page Performance',
+      status: 'optimal',
+      message: `Fast response (${loadTimeMs} ms)`,
+      actual: `${loadTimeMs} ms / ${(sizeBytes / 1024).toFixed(0)} KB`,
+      recommended: 'Optimal'
+    });
+  }
+
+  // --- Category 7: Structured Data ---
+  if (schemas.length === 0) {
+    score -= 8;
+    audits.push({
+      category: 'Structured Data',
+      item: 'Structured Data Schema',
+      status: 'warning',
+      message: 'No JSON-LD structured data detected',
+      actual: 'None',
+      recommended: 'Add Organization/WebSite/BreadcrumbList JSON-LD to strengthen entity signals.'
+    });
+  } else {
+    audits.push({
+      category: 'Structured Data',
+      item: 'Structured Data Schema',
+      status: 'optimal',
+      message: `Structured data present (${schemas.slice(0, 4).join(', ')}${schemas.length > 4 ? '…' : ''})`,
+      actual: `${schemas.length} schema type(s)`,
+      recommended: 'Optimal'
+    });
+  }
+
+  // --- Category 8: Content Structure (depth + hierarchy) ---
+  if (httpStatus >= 200 && httpStatus < 300 && wordCount > 0 && wordCount < 150) {
+    score -= 8;
+    audits.push({
+      category: 'Content Structure',
+      item: 'Content Depth',
+      status: 'warning',
+      message: `Thin content (${wordCount} words)`,
+      actual: `${wordCount} words`,
+      recommended: 'Expand to 300+ words of unique, useful copy or consolidate with a stronger page.'
+    });
+  }
+  if (wordCount >= 300 && h2Count === 0) {
+    score -= 3;
+    audits.push({
+      category: 'Content Structure',
+      item: 'Heading Hierarchy (H2)',
+      status: 'warning',
+      message: 'No H2 subheadings on a long-form page',
+      actual: `0 H2 / ${h3Count} H3`,
+      recommended: 'Break content into scannable H2 sections — helps users, crawlers, and AI extraction.'
+    });
+  }
 
   // 1. Title Audit (Optimal: 50 - 60 chars)
   const titleLen = title.length;
   if (titleLen === 0 || title === 'Untitled Page') {
     score -= 20;
     audits.push({
+      category: 'Content Structure',
       item: 'Title Tag',
       status: 'critical',
       message: 'Missing title tag entirely',
@@ -35,6 +247,7 @@ export function calculateOnPageSEO(page) {
   } else if (titleLen < 40) {
     score -= 10;
     audits.push({
+      category: 'Content Structure',
       item: 'Title Tag',
       status: 'warning',
       message: `Title is too short (${titleLen} chars)`,
@@ -44,6 +257,7 @@ export function calculateOnPageSEO(page) {
   } else if (titleLen > 65) {
     score -= 10;
     audits.push({
+      category: 'Content Structure',
       item: 'Title Tag',
       status: 'warning',
       message: `Title is too long (${titleLen} chars - will truncate)`,
@@ -52,6 +266,7 @@ export function calculateOnPageSEO(page) {
     });
   } else {
     audits.push({
+      category: 'Content Structure',
       item: 'Title Tag',
       status: 'optimal',
       message: 'Optimal Title Tag length',
@@ -65,6 +280,7 @@ export function calculateOnPageSEO(page) {
   if (descLen === 0) {
     score -= 20;
     audits.push({
+      category: 'Content Structure',
       item: 'Meta Description',
       status: 'critical',
       message: 'Missing meta description entirely',
@@ -74,6 +290,7 @@ export function calculateOnPageSEO(page) {
   } else if (descLen < 100) {
     score -= 10;
     audits.push({
+      category: 'Content Structure',
       item: 'Meta Description',
       status: 'warning',
       message: `Description is too short (${descLen} chars)`,
@@ -83,6 +300,7 @@ export function calculateOnPageSEO(page) {
   } else if (descLen > 165) {
     score -= 10;
     audits.push({
+      category: 'Content Structure',
       item: 'Meta Description',
       status: 'warning',
       message: `Description is too long (${descLen} chars - will truncate)`,
@@ -91,6 +309,7 @@ export function calculateOnPageSEO(page) {
     });
   } else {
     audits.push({
+      category: 'Content Structure',
       item: 'Meta Description',
       status: 'optimal',
       message: 'Optimal Meta Description length',
@@ -103,6 +322,7 @@ export function calculateOnPageSEO(page) {
   if (h1Count === 0) {
     score -= 20;
     audits.push({
+      category: 'Content Structure',
       item: 'H1 Header tag',
       status: 'critical',
       message: 'Missing H1 heading tag entirely',
@@ -112,6 +332,7 @@ export function calculateOnPageSEO(page) {
   } else if (h1Count > 1) {
     score -= 10;
     audits.push({
+      category: 'Content Structure',
       item: 'H1 Header tag',
       status: 'warning',
       message: `Multiple H1 tags detected (${h1Count} found)`,
@@ -120,6 +341,7 @@ export function calculateOnPageSEO(page) {
     });
   } else {
     audits.push({
+      category: 'Content Structure',
       item: 'H1 Header tag',
       status: 'optimal',
       message: 'Proper single H1 heading layout',
@@ -133,6 +355,7 @@ export function calculateOnPageSEO(page) {
     const missingPercent = Math.round((missingAltCount / imageCount) * 100);
     score -= Math.min(15, Math.ceil(missingPercent / 5));
     audits.push({
+      category: 'Images',
       item: 'Image Alt Attributes',
       status: missingPercent > 50 ? 'critical' : 'warning',
       message: `${missingAltCount} out of ${imageCount} images lack alt attributes (${missingPercent}%)`,
@@ -141,6 +364,7 @@ export function calculateOnPageSEO(page) {
     });
   } else if (imageCount > 0) {
     audits.push({
+      category: 'Images',
       item: 'Image Alt Attributes',
       status: 'optimal',
       message: 'All images have descriptive alt text tags',
@@ -153,6 +377,7 @@ export function calculateOnPageSEO(page) {
   if (!hasViewport) {
     score -= 15;
     audits.push({
+      category: 'Mobile',
       item: 'Mobile Viewport Meta',
       status: 'critical',
       message: 'Missing viewport meta tag entirely',
@@ -161,6 +386,7 @@ export function calculateOnPageSEO(page) {
     });
   } else {
     audits.push({
+      category: 'Mobile',
       item: 'Mobile Viewport Meta',
       status: 'optimal',
       message: 'Viewport viewport responsive meta tag exists',
@@ -174,6 +400,7 @@ export function calculateOnPageSEO(page) {
   if (!isHttps) {
     score -= 15;
     audits.push({
+      category: 'Security',
       item: 'SSL Certificate (HTTPS)',
       status: 'critical',
       message: 'Page is served over insecure HTTP connection',
@@ -182,6 +409,7 @@ export function calculateOnPageSEO(page) {
     });
   } else {
     audits.push({
+      category: 'Security',
       item: 'SSL Certificate (HTTPS)',
       status: 'optimal',
       message: 'Page served over secure HTTPS protocol',
@@ -268,6 +496,66 @@ server {
     return 301 https://$host$request_uri;
 }`
       };
+    case 'Robots Meta Directives':
+      return {
+        lang: 'html',
+        code: `<!-- Replace any restrictive robots meta with an indexable directive -->
+<meta name="robots" content="index, follow, max-image-preview:large" />`
+      };
+    case 'Canonical URL':
+      return {
+        lang: 'html',
+        code: `<!-- Add inside your page's <head> to consolidate duplicate URL variants -->
+<link rel="canonical" href="${url || `https://${host}/`}" />`
+      };
+    case 'URL Structure':
+      return {
+        lang: 'nginx',
+        code: `# Normalize URLs: lowercase, hyphenated, no query strings for indexable pages
+# Example 301 redirect from a messy URL to a clean slug:
+rewrite ^/Old_Path/(.*)$ /old-path/$1 permanent;`
+      };
+    case 'Page Performance':
+      return {
+        lang: 'nginx',
+        code: `# Enable compression + caching for faster TTFB and better Core Web Vitals (LCP/INP)
+gzip on;
+gzip_types text/html text/css application/javascript application/json image/svg+xml;
+location ~* \\.(css|js|webp|avif|woff2)$ {
+    expires 30d;
+    add_header Cache-Control "public, immutable";
+}`
+      };
+    case 'Structured Data Schema':
+      return {
+        lang: 'json',
+        code: `<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "${host}",
+  "url": "https://${host}/"
+}
+</script>`
+      };
+    case 'Heading Hierarchy (H2)':
+      return {
+        lang: 'html',
+        code: `<!-- Break long content into scannable sections -->
+<h2>Key Section Topic</h2>
+<p>Section content...</p>
+<h2>Next Section Topic</h2>
+<p>More content...</p>`
+      };
+    case 'Content Depth':
+      return {
+        lang: 'text',
+        code: `Expand ${url} to 300+ words of unique, useful copy:
+1. Answer the page's core question in the first 2 sentences.
+2. Add an H2-structured section per subtopic.
+3. Include one original data point, example, or first-hand insight.
+If the topic cannot support that depth, 301-redirect or consolidate it into a stronger page.`
+      };
     default:
       return {
         lang: 'text',
@@ -309,6 +597,32 @@ export default function OnPageSEO({ pages = [], onSelectPage }) {
       warning,
       critical
     };
+  }, [auditedPages]);
+
+  // Per-category site-wide breakdown: for each of the 9 technical categories,
+  // classify every page by its worst audit status in that category.
+  const categoryStats = useMemo(() => {
+    return TECH_CATEGORIES.map(cat => {
+      let criticalPages = 0;
+      let warningPages = 0;
+      let cleanPages = 0;
+
+      auditedPages.forEach(p => {
+        const catAudits = (p.audits || []).filter(a => a.category === cat.key);
+        if (catAudits.some(a => a.status === 'critical')) criticalPages++;
+        else if (catAudits.some(a => a.status === 'warning')) warningPages++;
+        else cleanPages++;
+      });
+
+      const total = auditedPages.length || 1;
+      return {
+        ...cat,
+        criticalPages,
+        warningPages,
+        cleanPages,
+        passPercent: Math.round((cleanPages / total) * 100)
+      };
+    });
   }, [auditedPages]);
 
   // Filtered list
@@ -390,6 +704,41 @@ export default function OnPageSEO({ pages = [], onSelectPage }) {
           </div>
         </div>
 
+      </div>
+
+      {/* 9-Category Technical Breakdown */}
+      <div className="glass-card" style={{ padding: '1.5rem' }}>
+        <h2 style={{ margin: 0, fontSize: '1.1rem' }}>🧪 9-Category Technical Breakdown</h2>
+        <p className="subtitle" style={{ marginTop: '0.25rem' }}>
+          Site-wide pass rate per technical SEO category across all {auditedPages.length} audited pages.
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(215px, 1fr))', gap: '0.7rem', marginTop: '0.75rem' }}>
+          {categoryStats.map(cat => (
+            <div key={cat.key} title={`${cat.criticalPages} page(s) critical, ${cat.warningPages} page(s) warning`} style={{
+              padding: '0.8rem 0.95rem', borderRadius: '12px',
+              border: '1px solid var(--border-light)', background: 'var(--bg-main)'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.45rem' }}>
+                <span style={{ fontSize: '0.82rem', fontWeight: 700 }}>{cat.icon} {cat.key}</span>
+                <span className={`status-badge ${cat.criticalPages > 0 ? 'status-error' : cat.warningPages > 0 ? 'status-redirect' : 'status-success'}`}>
+                  {cat.passPercent}%
+                </span>
+              </div>
+              <div style={{ height: '6px', borderRadius: '9999px', background: 'var(--border-light)', overflow: 'hidden' }}>
+                <div style={{
+                  width: `${cat.passPercent}%`, height: '100%', borderRadius: '9999px',
+                  background: cat.criticalPages > 0 ? 'var(--color-danger)' : cat.warningPages > 0 ? 'var(--color-warning)' : 'var(--color-success)'
+                }}></div>
+              </div>
+              <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
+                {cat.criticalPages > 0 ? `${cat.criticalPages} critical` : ''}
+                {cat.criticalPages > 0 && cat.warningPages > 0 ? ' · ' : ''}
+                {cat.warningPages > 0 ? `${cat.warningPages} warning` : ''}
+                {cat.criticalPages === 0 && cat.warningPages === 0 ? 'All pages pass' : ` · ${cat.cleanPages} clean`}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Main Filter & search controls */}

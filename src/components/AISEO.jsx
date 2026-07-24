@@ -44,8 +44,8 @@ export function calculatePageAISEO(page) {
     });
   }
 
-  // 3. AI Bot Access / Robots Blocks
-  const isBotBlocked = /noindex|nofollow/i.test(robots);
+  // 3. AI Bot Access / Robots Blocks ("none" = noindex + nofollow)
+  const isBotBlocked = /noindex|nofollow|\bnone\b/i.test(robots);
   if (isBotBlocked) {
     score -= 30;
     audits.push({
@@ -212,7 +212,7 @@ export function generateAISEOFix(recType, url, title) {
   }
 }
 
-export default function AISEO({ pages = [], onSelectPage }) {
+export default function AISEO({ pages = [], siteSignals = null, onSelectPage }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [citationFilter, setCitationFilter] = useState('all'); // all, high, medium, low
   const [selectedPage, setSelectedPage] = useState(null);
@@ -327,11 +327,75 @@ export default function AISEO({ pages = [], onSelectPage }) {
           <h3 style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Site-Wide Entity Index</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: '0.8rem' }}>
             <div>🏢 Entity Schemas: <strong>{pages.filter(p => p.schemas && p.schemas.some(s => /Organization|LocalBusiness|Brand/i.test(s))).length}</strong></div>
-            <div>🤖 Scraper Blocks: <strong>{pages.filter(p => p.robots && /noindex|nofollow/i.test(p.robots)).length} pages</strong></div>
+            <div>🤖 Scraper Blocks: <strong>{pages.filter(p => p.robots && /noindex|nofollow|\bnone\b/i.test(p.robots)).length} pages</strong></div>
             <div>📈 Research statistics: <strong>{auditedPages.filter(p => p.hasStats).length} cited pages</strong></div>
           </div>
         </div>
 
+      </div>
+
+      {/* AI Crawler Access — site-wide robots.txt / llms.txt analysis */}
+      <div className="glass-card" style={{ padding: '1.5rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.35rem' }}>
+          <h2 style={{ margin: 0, fontSize: '1.1rem' }}>🛂 AI Crawler Access</h2>
+          {siteSignals && (
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <span className={`status-badge ${siteSignals.robotsTxt.found ? 'status-success' : 'status-error'}`} title="robots.txt controls which crawlers may access the site">
+                robots.txt {siteSignals.robotsTxt.found ? '✓ Found' : '✗ Missing'}
+              </span>
+              <span className={`status-badge ${siteSignals.llmsTxt.found ? 'status-success' : 'status-error'}`} title="llms.txt gives AI assistants a curated map of your best content">
+                llms.txt {siteSignals.llmsTxt.found ? '✓ Found' : '✗ Missing'}
+              </span>
+              <span className={`status-badge ${siteSignals.robotsTxt.sitemapDeclared ? 'status-success' : 'status-error'}`} title="A Sitemap: line in robots.txt helps all crawlers discover pages">
+                Sitemap in robots {siteSignals.robotsTxt.sitemapDeclared ? '✓' : '✗'}
+              </span>
+            </div>
+          )}
+        </div>
+        <p className="subtitle" style={{ marginTop: 0 }}>
+          Which AI crawlers are allowed to read this site (parsed from robots.txt). Blocking a search/answer bot
+          (OAI-SearchBot, PerplexityBot) stops that engine from crawling and citing your pages going forward;
+          blocking a training bot (GPTBot, Google-Extended, CCBot) keeps future model training data out — it does
+          not remove content already ingested.
+        </p>
+
+        {!siteSignals ? (
+          <div style={{ padding: '1rem', background: 'var(--bg-main)', borderRadius: '10px', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+            ℹ️ No site-signal data in this report. Re-run the scan to collect robots.txt / llms.txt AI-crawler analysis.
+          </div>
+        ) : (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: '0.6rem', marginTop: '0.75rem' }}>
+              {(siteSignals.robotsTxt.aiBots || []).map(b => (
+                <div key={b.bot} title={b.detail} style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem',
+                  padding: '0.55rem 0.8rem', borderRadius: '10px',
+                  border: '1px solid var(--border-light)', background: 'var(--bg-main)', fontSize: '0.8rem'
+                }}>
+                  <div style={{ minWidth: 0 }}>
+                    <strong style={{ display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.bot}</strong>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.vendor}</span>
+                  </div>
+                  <span
+                    className={`status-badge ${b.status === 'allowed' ? 'status-success' : b.status === 'partial' ? 'status-redirect' : b.status === 'blocked' ? 'status-error' : ''}`}
+                    style={b.status === 'unknown' ? { background: 'var(--border-light)', color: 'var(--text-muted)' } : undefined}
+                  >
+                    {b.status === 'allowed' ? 'Allowed' : b.status === 'partial' ? 'Partial' : b.status === 'blocked' ? 'Blocked' : 'Unknown'}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {!siteSignals.llmsTxt.found && (
+              <div style={{ marginTop: '0.9rem', padding: '0.8rem 1rem', background: 'rgba(0, 102, 204, 0.06)', border: '1px solid rgba(0, 102, 204, 0.2)', borderRadius: '10px', fontSize: '0.8rem' }}>
+                💡 <strong>Recommendation:</strong> consider adding an <code>/llms.txt</code> file — an emerging
+                standard: a markdown index of your most important pages designed to help AI tools discover your best
+                content. Adoption by major AI providers is still growing, but it costs one static file and signals
+                AI-readiness.
+              </div>
+            )}
+          </>
+        )}
       </div>
 
       {/* Main Tab results */}

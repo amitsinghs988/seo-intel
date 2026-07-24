@@ -289,6 +289,89 @@ export function generateEEATFixSnippet(recType, url, title) {
   }
 }
 
+/**
+ * Content Quality Gates — page-type-aware thin-content thresholds.
+ * Mirrors the claude-seo skill's quality-gate methodology: different page types
+ * have different minimum content depths, and location pages get uniqueness rules.
+ */
+const PAGE_TYPE_RULES = [
+  { type: 'Homepage', test: (path) => path === '' || path === '/', target: 400, thin: 200 },
+  { type: 'Article / Blog', test: (path) => /\/(blog|news|article|articles|post|posts|guide|guides|resources|insights)(\/|$)|\/20\d\d\//i.test(path), target: 800, thin: 500 },
+  { type: 'Product', test: (path) => /\/(product|products|item|items|shop|p)(\/|$)/i.test(path), target: 300, thin: 150 },
+  { type: 'Category / Listing', test: (path) => /\/(category|categories|tag|tags|collection|collections|topics|author)(\/|$)/i.test(path), target: 150, thin: 80 },
+  { type: 'Location', test: (path) => /\/(location|locations|service-area|areas-served|areas|city|cities)(\/|$)|\/[a-z-]+-(tx|ca|ny|fl|wa|il|pa|oh|ga|nc)(\/|$)/i.test(path), target: 500, thin: 300 },
+  { type: 'Utility / Legal', test: (path) => /\/(contact|about|privacy|terms|legal|login|signup|register|cart|checkout|search|404|sitemap)(\/|$)/i.test(path), target: 0, thin: 0 },
+  { type: 'General Page', test: () => true, target: 300, thin: 150 }
+];
+
+export function classifyPageType(url) {
+  let path = '';
+  try {
+    path = new URL(url).pathname.replace(/\/$/, '');
+  } catch (e) {
+    path = url || '';
+  }
+  const rule = PAGE_TYPE_RULES.find(r => r.test(path));
+  return rule || PAGE_TYPE_RULES[PAGE_TYPE_RULES.length - 1];
+}
+
+export function evaluateQualityGates(pages) {
+  const okPages = (pages || []).filter(p => p && p.status >= 200 && p.status < 300);
+  const thinPages = [];
+  let locationCount = 0;
+  const locationLowUnique = [];
+
+  okPages.forEach(p => {
+    const rule = classifyPageType(p.url || '');
+    const words = p.wordCount || 0;
+
+    if (rule.type === 'Location') {
+      locationCount++;
+      if ((p.uniquePercent || 0) < 60) {
+        locationLowUnique.push({ url: p.url, title: p.title, uniquePercent: p.uniquePercent || 0 });
+      }
+    }
+
+    if (rule.thin > 0 && words < rule.thin) {
+      thinPages.push({
+        url: p.url,
+        title: p.title,
+        pageType: rule.type,
+        words,
+        threshold: rule.thin,
+        target: rule.target,
+        severity: words < rule.thin / 2 ? 'critical' : 'warning'
+      });
+    }
+  });
+
+  thinPages.sort((a, b) => (a.words / a.threshold) - (b.words / b.threshold));
+
+  // Location-page quality gates from the skill: WARNING at 30+, HARD STOP at 50+
+  let locationGate = null;
+  if (locationCount >= 50) {
+    locationGate = {
+      level: 'critical',
+      message: `${locationCount} location pages detected — at this scale, near-identical templated location pages are at high risk of being classified as doorway pages (a violation of Google's spam policies). Every page needs 60%+ unique, locally-specific content, or consolidate.`
+    };
+  } else if (locationCount >= 30) {
+    locationGate = {
+      level: 'warning',
+      message: `${locationCount} location pages detected — enforce 60%+ unique content per page (local landmarks, staff, testimonials, city-specific service details) to reduce doorway-page risk.`
+    };
+  }
+
+  return {
+    totalEvaluated: okPages.length,
+    thinPages,
+    thinCount: thinPages.length,
+    criticalCount: thinPages.filter(t => t.severity === 'critical').length,
+    locationCount,
+    locationGate,
+    locationLowUnique
+  };
+}
+
 export default function EEATAudit({ pages = [], onSelectPage }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [pillarFilter, setPillarFilter] = useState('all'); // all, high, medium, low
@@ -346,6 +429,10 @@ export default function EEATAudit({ pages = [], onSelectPage }) {
       return true;
     });
   }, [auditedPages, searchTerm, pillarFilter]);
+
+  // Content quality gates (thin content per page type + location-page rules)
+  const qualityGates = useMemo(() => evaluateQualityGates(pages), [pages]);
+  const [showAllThin, setShowAllThin] = useState(false);
 
   return (
     <div className="eeat-audit-container animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -413,6 +500,85 @@ export default function EEATAudit({ pages = [], onSelectPage }) {
           </div>
         </div>
 
+      </div>
+
+      {/* Content Quality Gates — thin content per page type */}
+      <div className="glass-card" style={{ padding: '1.5rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+          <h2 style={{ margin: 0, fontSize: '1.1rem' }}>🚧 Content Quality Gates</h2>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <span className={`status-badge ${qualityGates.criticalCount > 0 ? 'status-error' : qualityGates.thinCount > 0 ? 'status-redirect' : 'status-success'}`}>
+              {qualityGates.thinCount} thin page{qualityGates.thinCount === 1 ? '' : 's'}
+            </span>
+            <span className="status-badge" style={{ background: 'var(--bg-main)', color: 'var(--text-muted)', border: '1px solid var(--border-light)' }}>
+              {qualityGates.totalEvaluated} evaluated
+            </span>
+          </div>
+        </div>
+        <p className="subtitle" style={{ marginTop: '0.25rem' }}>
+          Each page type has its own minimum content depth (blog 500+, product 150+, category 80+, homepage 200+ words).
+          Pages below the gate risk "thin content" quality classification.
+        </p>
+
+        {qualityGates.locationGate && (
+          <div style={{
+            margin: '0.5rem 0 0.75rem 0', padding: '0.8rem 1rem', borderRadius: '10px', fontSize: '0.82rem',
+            background: qualityGates.locationGate.level === 'critical' ? 'rgba(239, 68, 68, 0.08)' : 'rgba(234, 88, 12, 0.08)',
+            border: `1px solid ${qualityGates.locationGate.level === 'critical' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(234, 88, 12, 0.3)'}`
+          }}>
+            {qualityGates.locationGate.level === 'critical' ? '🛑' : '⚠️'} <strong>Location-page gate:</strong> {qualityGates.locationGate.message}
+          </div>
+        )}
+
+        {qualityGates.thinCount === 0 ? (
+          <div style={{ padding: '1rem', background: 'var(--bg-main)', borderRadius: '10px', fontSize: '0.85rem' }}>
+            🎉 All {qualityGates.totalEvaluated} pages meet the content-depth gates for their page type.
+          </div>
+        ) : (
+          <div className="table-responsive">
+            <table className="pages-table" style={{ fontSize: '0.82rem' }}>
+              <thead>
+                <tr>
+                  <th>Page</th>
+                  <th>Detected Type</th>
+                  <th style={{ textAlign: 'center' }}>Words</th>
+                  <th style={{ textAlign: 'center' }}>Gate</th>
+                  <th style={{ textAlign: 'center' }}>Target</th>
+                  <th style={{ textAlign: 'center' }}>Severity</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(showAllThin ? qualityGates.thinPages : qualityGates.thinPages.slice(0, 10)).map(t => (
+                  <tr key={t.url}>
+                    <td style={{ maxWidth: '340px' }}>
+                      <button className="link-style-btn" onClick={() => onSelectPage && onSelectPage(t.url, 'eeat')} title={t.url}>
+                        <span style={{ display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '330px' }}>{t.url}</span>
+                      </button>
+                    </td>
+                    <td>{t.pageType}</td>
+                    <td style={{ textAlign: 'center', fontWeight: 700 }}>{t.words}</td>
+                    <td style={{ textAlign: 'center', color: 'var(--text-muted)' }}>{t.threshold}+</td>
+                    <td style={{ textAlign: 'center', color: 'var(--text-muted)' }}>{t.target}+</td>
+                    <td style={{ textAlign: 'center' }}>
+                      <span className={`status-badge ${t.severity === 'critical' ? 'status-error' : 'status-redirect'}`}>
+                        {t.severity === 'critical' ? 'Critical' : 'Thin'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {qualityGates.thinPages.length > 10 && (
+              <button
+                className="link-style-btn"
+                style={{ marginTop: '0.6rem', fontSize: '0.8rem' }}
+                onClick={() => setShowAllThin(v => !v)}
+              >
+                {showAllThin ? '▲ Show fewer' : `▼ Show all ${qualityGates.thinPages.length} thin pages`}
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Interactive Controls & Filters */}

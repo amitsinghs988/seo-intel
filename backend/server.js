@@ -1,6 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import { discoverSitemapUrls, crawlWebsite, validateExternalLinks } from './crawler.js';
+import { discoverSitemapUrls, crawlWebsite, validateExternalLinks, fetchSiteSignals, validateUrlSafety } from './crawler.js';
 import { analyzeDuplicates } from './analyzer.js';
 
 const app = express();
@@ -22,6 +22,7 @@ let crawlState = {
   pagesRaw: [],
   pagesAnalyzed: [],
   nearDuplicates: [],
+  siteSignals: null,
   summary: null,
   error: null
 };
@@ -49,6 +50,13 @@ app.post('/api/crawl/start', async (req, res) => {
     return res.status(400).json({ error: 'URL is required' });
   }
 
+  // SSRF guard BEFORE any network probe (sitemap discovery, site signals, crawl):
+  // blocks non-http(s) protocols and private/internal address ranges up front.
+  const safety = await validateUrlSafety(url);
+  if (!safety.ok) {
+    return res.status(400).json({ error: safety.error });
+  }
+
   if (crawlState.status === 'crawling') {
     return res.status(400).json({ error: 'A crawl is already in progress', state: getSanitizedState() });
   }
@@ -66,6 +74,7 @@ app.post('/api/crawl/start', async (req, res) => {
     pagesRaw: [],
     pagesAnalyzed: [],
     nearDuplicates: [],
+    siteSignals: null,
     summary: null,
     error: null
   };
@@ -84,6 +93,14 @@ app.post('/api/crawl/start', async (req, res) => {
 
     // Step 1: Discover sitemap URLs
     const sitemapUrls = await discoverSitemapUrls(url, sitemapLogCallback, isCancelled);
+
+    if (isCancelled()) {
+      if (!res.headersSent) res.json({ message: 'Crawl cancelled', state: getSanitizedState() });
+      return;
+    }
+
+    // Step 1b: Collect site-wide signals (robots.txt AI-crawler access, llms.txt, security headers)
+    crawlState.siteSignals = await fetchSiteSignals(url, sitemapLogCallback);
 
     if (isCancelled()) {
       if (!res.headersSent) res.json({ message: 'Crawl cancelled', state: getSanitizedState() });
@@ -442,7 +459,8 @@ function getSanitizedState(includeDetails = false) {
     progress: crawlState.progress,
     error: crawlState.error,
     summary: crawlState.summary,
-    nearDuplicates: crawlState.nearDuplicates
+    nearDuplicates: crawlState.nearDuplicates,
+    siteSignals: crawlState.siteSignals || null
   };
 
   if (includeDetails) {

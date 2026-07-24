@@ -116,7 +116,8 @@ export default function App() {
           progress: crawlState.progress,
           summary: crawlState.summary,
           pages: crawlState.pages,
-          nearDuplicates: crawlState.nearDuplicates
+          nearDuplicates: crawlState.nearDuplicates,
+          siteSignals: crawlState.siteSignals || null
         }));
       } catch (e) {
         console.error('Failed to cache crawl state to localStorage:', e);
@@ -426,6 +427,7 @@ export default function App() {
         pagesAnalyzed: [],
         pages: [],
         nearDuplicates: [],
+        siteSignals: null,
         summary: null,
         error: null
       };
@@ -459,6 +461,7 @@ export default function App() {
           summary: data.state.summary,
           pages: data.state.pages || [],
           nearDuplicates: data.state.nearDuplicates || [],
+          siteSignals: data.state.siteSignals || null,
           error: null
         });
         navigate('/results/summary');
@@ -866,8 +869,9 @@ export default function App() {
                   )}
 
                   {activeTab === 'aiseo' && (
-                    <AISEO 
-                      pages={crawlState.pages} 
+                    <AISEO
+                      pages={crawlState.pages}
+                      siteSignals={crawlState.siteSignals}
                       onSelectPage={handleSelectPage}
                     />
                   )}

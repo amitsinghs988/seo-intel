@@ -159,6 +159,246 @@ export async function validateUrlSafety(urlString) {
 }
 
 /**
+ * AI crawlers whose robots.txt access is analyzed for the AI SEO report.
+ * Kept to the bots that matter for AI-search visibility and LLM training.
+ */
+const AI_CRAWLERS = [
+  { bot: 'GPTBot', vendor: 'OpenAI — ChatGPT training' },
+  { bot: 'OAI-SearchBot', vendor: 'OpenAI — ChatGPT Search' },
+  { bot: 'ChatGPT-User', vendor: 'OpenAI — user-initiated fetches' },
+  { bot: 'ClaudeBot', vendor: 'Anthropic — Claude' },
+  { bot: 'Claude-User', vendor: 'Anthropic — user-initiated fetches' },
+  { bot: 'PerplexityBot', vendor: 'Perplexity — search index' },
+  { bot: 'Google-Extended', vendor: 'Google — Gemini training' },
+  { bot: 'CCBot', vendor: 'Common Crawl — many AI models' },
+  { bot: 'Bytespider', vendor: 'ByteDance — Doubao' },
+  { bot: 'Applebot-Extended', vendor: 'Apple Intelligence' },
+  { bot: 'meta-externalagent', vendor: 'Meta AI' }
+];
+
+/**
+ * Parses robots.txt into user-agent groups with their allow/disallow rules.
+ * Per RFC 9309: blank lines and comment lines carry no meaning (they never
+ * split a run of consecutive User-agent lines), and a group runs until the
+ * next User-agent line that follows at least one rule line.
+ */
+export function parseRobotsGroups(text) {
+  // Strip a potential UTF-8 BOM so the first "User-agent" line parses.
+  const clean = text.replace(/^﻿/, '');
+  const groups = [];
+  let current = null;
+  let lastWasAgent = false;
+
+  clean.split(/\r?\n/).forEach(rawLine => {
+    const line = rawLine.replace(/#.*$/, '').trim();
+    if (!line) return; // blank/comment lines are ignored entirely (no state change)
+
+    const match = line.match(/^([A-Za-z-]+)\s*:\s*(.*)$/);
+    if (!match) return;
+
+    const key = match[1].toLowerCase();
+    const value = match[2].trim();
+
+    if (key === 'user-agent') {
+      if (!lastWasAgent || !current) {
+        current = { agents: [], rules: [] };
+        groups.push(current);
+      }
+      current.agents.push(value.toLowerCase());
+      lastWasAgent = true;
+    } else {
+      if ((key === 'disallow' || key === 'allow') && current) {
+        current.rules.push({ type: key, path: value });
+      }
+      lastWasAgent = false;
+    }
+  });
+
+  return groups;
+}
+
+/**
+ * Resolves effective site-root access for a bot from parsed robots.txt groups.
+ * RFC 9309 semantics implemented here:
+ *  - exact user-agent token match beats the '*' group (no substring matching,
+ *    so Applebot-Extended never inherits Applebot's rules)
+ *  - ALL groups naming the same agent are merged (concatenated robots.txt files)
+ *  - an Allow of the site root overrides Disallow: / (allow wins on tie)
+ *  - 'Disallow: /*' is equivalent to a full block
+ */
+export function resolveBotAccess(groups, botName) {
+  const botLower = botName.toLowerCase();
+
+  let matched = groups.filter(g => g.agents.some(a => a === botLower));
+  let matchedVia = 'specific rule';
+
+  if (matched.length === 0) {
+    matched = groups.filter(g => g.agents.includes('*'));
+    matchedVia = 'wildcard (*) rule';
+  }
+
+  if (matched.length === 0) {
+    return { status: 'allowed', detail: 'No robots.txt rules apply' };
+  }
+
+  const rules = matched.flatMap(g => g.rules);
+  const isRootPath = (p) => p === '/' || p === '/*';
+  const disallows = rules.filter(r => r.type === 'disallow' && r.path);
+  const rootDisallowed = disallows.some(r => isRootPath(r.path));
+  const rootAllowed = rules.some(r => r.type === 'allow' && isRootPath(r.path));
+
+  if (rootDisallowed && !rootAllowed) {
+    return { status: 'blocked', detail: `Disallow: / via ${matchedVia}` };
+  }
+  const partialDisallows = disallows.filter(r => !isRootPath(r.path));
+  if (partialDisallows.length > 0) {
+    return { status: 'partial', detail: `${partialDisallows.length} path(s) disallowed via ${matchedVia}` };
+  }
+  return { status: 'allowed', detail: `Allowed via ${matchedVia}` };
+}
+
+/**
+ * Fetch with a timeout, retrying once on failure. The retry absorbs Node's
+ * slow first-connection path (IPv6 attempt falling back to IPv4), which can
+ * consume the entire first timeout on some hosts.
+ * On serverless (Vercel) the function time budget is tight and the crawl
+ * itself dominates it, so probes get one attempt with a shorter timeout.
+ */
+async function fetchWithRetry(url, options = {}, timeoutMs = 8000) {
+  const attempts = process.env.VERCEL ? 1 : 2;
+  const budget = process.env.VERCEL ? Math.min(timeoutMs, 5000) : timeoutMs;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      return await fetch(url, { ...options, signal: AbortSignal.timeout(budget) });
+    } catch (e) {
+      if (attempt === attempts - 1) throw e;
+    }
+  }
+}
+
+/**
+ * Fetches site-wide SEO signals in one pass:
+ *  - robots.txt: presence, sitemap directive, per-AI-crawler access analysis
+ *  - llms.txt / llms-full.txt: presence (AI content discovery standard)
+ *  - homepage security headers (HSTS, CSP, X-Content-Type-Options, ...)
+ */
+export async function fetchSiteSignals(seedUrl, onUpdate) {
+  const signals = {
+    origin: '',
+    robotsTxt: { found: false, sitemapDeclared: false, aiBots: [] },
+    llmsTxt: { found: false },
+    llmsFullTxt: { found: false },
+    securityHeaders: null
+  };
+
+  let origin;
+  try {
+    origin = new URL(seedUrl).origin;
+    signals.origin = origin;
+  } catch (e) {
+    return signals;
+  }
+
+  if (onUpdate) {
+    onUpdate({ type: 'progress_log', message: 'Collecting site signals: robots.txt, llms.txt, security headers...' });
+  }
+
+  // All four probes run concurrently so the signals phase costs one fetch
+  // budget (≤5s on Vercel, ≤16s locally), not the sum of all probes.
+  const robotsProbe = (async () => {
+    try {
+      const res = await fetchWithRetry(origin + '/robots.txt', {
+        headers: getHeadersForUrl(origin + '/robots.txt')
+      });
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && !contentType.includes('text/html')) {
+        const text = (await res.text()).slice(0, 100000);
+        signals.robotsTxt.found = true;
+        signals.robotsTxt.sitemapDeclared = /^\s*sitemap\s*:/im.test(text);
+        const groups = parseRobotsGroups(text);
+        signals.robotsTxt.aiBots = AI_CRAWLERS.map(c => ({
+          bot: c.bot,
+          vendor: c.vendor,
+          ...resolveBotAccess(groups, c.bot)
+        }));
+        return;
+      }
+      if (res.status >= 500) {
+        // RFC 9309: a 5xx robots.txt means access rules are UNKNOWN, not open
+        signals.robotsTxt.aiBots = AI_CRAWLERS.map(c => ({
+          bot: c.bot,
+          vendor: c.vendor,
+          status: 'unknown',
+          detail: `robots.txt returned HTTP ${res.status} — access rules unknown`
+        }));
+        return;
+      }
+      // 4xx / HTML soft-404: no robots.txt => everything allowed by default
+      signals.robotsTxt.aiBots = AI_CRAWLERS.map(c => ({
+        bot: c.bot,
+        vendor: c.vendor,
+        status: 'allowed',
+        detail: 'No robots.txt — all crawlers allowed by default'
+      }));
+    } catch (e) {
+      signals.robotsTxt.aiBots = AI_CRAWLERS.map(c => ({
+        bot: c.bot,
+        vendor: c.vendor,
+        status: 'unknown',
+        detail: 'robots.txt unreachable — access rules unknown'
+      }));
+    }
+  })();
+
+  const llmsProbes = [{ file: '/llms.txt', key: 'llmsTxt' }, { file: '/llms-full.txt', key: 'llmsFullTxt' }].map(({ file, key }) =>
+    (async () => {
+      try {
+        const res = await fetchWithRetry(origin + file, {
+          headers: getHeadersForUrl(origin + file)
+        }, 6000);
+        const contentType = res.headers.get('content-type') || '';
+        // Many sites serve a soft-404 HTML page; only count non-HTML 200s
+        signals[key].found = res.ok && !contentType.includes('text/html');
+      } catch (e) {
+        // unreachable — leave found=false
+      }
+    })()
+  );
+
+  const headersProbe = (async () => {
+    try {
+      const res = await fetchWithRetry(seedUrl, {
+        headers: getHeadersForUrl(seedUrl),
+        redirect: 'follow'
+      }, 10000);
+      const h = (name) => res.headers.get(name) || '';
+      signals.securityHeaders = {
+        strictTransportSecurity: h('strict-transport-security'),
+        contentSecurityPolicy: h('content-security-policy'),
+        xContentTypeOptions: h('x-content-type-options'),
+        xFrameOptions: h('x-frame-options'),
+        referrerPolicy: h('referrer-policy'),
+        permissionsPolicy: h('permissions-policy')
+      };
+    } catch (e) {
+      // homepage unreachable for header probe — leave null
+    }
+  })();
+
+  await Promise.all([robotsProbe, ...llmsProbes, headersProbe]);
+
+  if (onUpdate) {
+    const blocked = signals.robotsTxt.aiBots.filter(b => b.status === 'blocked').length;
+    onUpdate({
+      type: 'progress_log',
+      message: `Site signals collected: robots.txt ${signals.robotsTxt.found ? 'found' : 'missing'}, llms.txt ${signals.llmsTxt.found ? 'found' : 'missing'}, ${blocked} AI crawler(s) blocked.`
+    });
+  }
+
+  return signals;
+}
+
+/**
  * Recursively parses sitemap XML files starting from /sitemap.xml to discover pages.
  */
 export async function discoverSitemapUrls(seedUrl, onUpdate, checkCancelled) {
