@@ -28,7 +28,7 @@ export default function SEOActionPlan({ pages = [] }) {
       { id: 'p2_1', text: 'Create or update author bios with full E-E-A-T signals', checked: false, alert: eeatErrorsCount > 0 ? `⚠️ E-E-A-T Alert: Found ${eeatErrorsCount} page(s) missing credential schemas or HTTPS trust levels. Check 'E-E-A-T Quality Audit' tab.` : null },
       { id: 'p2_2', text: 'Publish first 2–4 pillar pages / cornerstone content pieces', checked: false },
       { id: 'p2_3', text: 'Begin content cluster production (3–5 supporting articles per pillar)', checked: false },
-      { id: 'p2_4', text: 'Implement FAQ schema on all content pages', checked: false, alert: aeoErrorsCount > 0 ? `⚠️ AEO Alert: Found ${aeoErrorsCount} page(s) lacking FAQPage/QAPage structured data schema blocks. Check 'AEO & Voice Search' tab.` : null },
+      { id: 'p2_4', text: 'Add QAPage / structured Q&A markup for AI answer engines (FAQ rich results retired May 2026 — this now targets AI Overviews, ChatGPT & Perplexity, not Google SERP)', checked: false, alert: aeoErrorsCount > 0 ? `⚠️ AEO Alert: Found ${aeoErrorsCount} page(s) lacking QAPage/Q&A structured data. Check 'AEO & Voice Search' tab.` : null },
       { id: 'p2_5', text: 'Optimize top 10 existing pages: update content, add schema, improve CTA', checked: false },
       { id: 'p2_6', text: 'Launch content calendar for next 6 months', checked: false },
       { id: 'p2_7', text: 'Build or update About Us, Contact, Privacy Policy, and Trust pages', checked: false },

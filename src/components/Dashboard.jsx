@@ -1,4 +1,70 @@
+import { useMemo } from 'react';
+import { calculatePageEEAT } from './EEATAudit';
+import { calculateOnPageSEO } from './OnPageSEO';
+import { calculatePageAEO } from './AEOAudit';
+import { calculatePageAISEO } from './AISEO';
+
+// Overall SEO Health Score — weighted synthesis of every audit module (0-100).
+// Inspired by the /seo skill's scoring methodology, adapted to the dimensions this
+// tool measures directly from crawled HTML.
+function healthColor(s) {
+  if (s >= 80) return 'var(--color-success)';
+  if (s >= 60) return 'var(--color-primary)';
+  if (s >= 40) return 'var(--color-warning)';
+  return 'var(--color-danger)';
+}
+
+function healthRating(s) {
+  if (s >= 80) return 'Strong — Well Optimized';
+  if (s >= 60) return 'Good — Room to Improve';
+  if (s >= 40) return 'Needs Optimization';
+  return 'Critical — Priority Fixes Needed';
+}
+
 export default function Dashboard({ summary, nearDuplicates = [], pages = [], onTabChange }) {
+  // --- Overall SEO Health Score (weighted across all audit modules) ---
+  // Declared before any early return so the hook order stays stable.
+  const health = useMemo(() => {
+    if (!summary) return null;
+    const scored = (pages || []).filter(p => p && p.status >= 200 && p.status < 300);
+    if (scored.length === 0) return null;
+
+    const avg = (fn) => Math.round(scored.reduce((s, p) => s + (fn(p).score || 0), 0) / scored.length);
+    const onPage = avg(calculateOnPageSEO);
+    const eeat = avg(calculatePageEEAT);
+    const aeo = avg(calculatePageAEO);
+    const ai = avg(calculatePageAISEO);
+    const uniqueness = Math.round(summary.avgUniquePercent || 0);
+    const brokenTotal = (summary.brokenInternalLinksCount || 0) + (summary.brokenExternalLinksCount || 0);
+    const linkHealth = Math.max(0, 100 - Math.min(100, brokenTotal * 4));
+
+    const categories = [
+      { label: 'On-Page Technical', score: onPage, weight: 25, tab: 'onpage' },
+      { label: 'Content & E-E-A-T', score: eeat, weight: 25, tab: 'eeat' },
+      { label: 'Answer Engine (AEO)', score: aeo, weight: 15, tab: 'aeo' },
+      { label: 'AI SEO / LLM Citations', score: ai, weight: 15, tab: 'aiseo' },
+      { label: 'Content Uniqueness', score: uniqueness, weight: 10, tab: 'duplicate' },
+      { label: 'Link Health', score: linkHealth, weight: 10, tab: 'broken' }
+    ];
+
+    const overall = Math.round(
+      categories.reduce((sum, c) => sum + c.score * (c.weight / 100), 0)
+    );
+
+    const priorities = [...categories]
+      .filter(c => c.score < 75)
+      .sort((a, b) => (a.score * a.weight) - (b.score * b.weight))
+      .slice(0, 4)
+      .map(c => ({
+        label: c.label,
+        score: c.score,
+        tab: c.tab,
+        severity: c.score < 40 ? 'Critical' : c.score < 60 ? 'High' : 'Medium'
+      }));
+
+    return { overall, categories, priorities };
+  }, [pages, summary]);
+
   if (!summary) return null;
 
   const {
@@ -79,6 +145,59 @@ export default function Dashboard({ summary, nearDuplicates = [], pages = [], on
 
   return (
     <div className="dashboard-summary">
+      {/* --- Overall SEO Health Score --- */}
+      {health && (
+        <div className="seo-health-hero glass-card animate-fade-in">
+          <div className="health-gauge">
+            <svg width="150" height="150" viewBox="0 0 130 130">
+              <circle cx="65" cy="65" r="54" fill="none" stroke="var(--border-light)" strokeWidth="11" />
+              <circle
+                cx="65" cy="65" r="54" fill="none"
+                stroke={healthColor(health.overall)} strokeWidth="11" strokeLinecap="round"
+                strokeDasharray="339.29"
+                strokeDashoffset={339.29 - (339.29 * health.overall) / 100}
+                transform="rotate(-90 65 65)"
+                style={{ transition: 'stroke-dashoffset 0.6s ease' }}
+              />
+              <text x="65" y="62" textAnchor="middle" className="health-gauge-num" style={{ fill: healthColor(health.overall) }}>{health.overall}</text>
+              <text x="65" y="84" textAnchor="middle" className="health-gauge-sub">/ 100</text>
+            </svg>
+            <div className="health-gauge-caption">
+              <span className="health-title">SEO Health Score</span>
+              <span className="health-rating" style={{ color: healthColor(health.overall) }}>{healthRating(health.overall)}</span>
+            </div>
+          </div>
+
+          <div className="health-detail">
+            <div className="health-categories">
+              {health.categories.map(c => (
+                <button key={c.label} className="health-cat-row" onClick={() => onTabChange(c.tab)} title={`Open ${c.label} — ${c.weight}% of score`}>
+                  <span className="health-cat-label">{c.label}</span>
+                  <span className="health-cat-bar-bg">
+                    <span className="health-cat-bar-fill" style={{ width: `${c.score}%`, background: healthColor(c.score) }}></span>
+                  </span>
+                  <span className="health-cat-score" style={{ color: healthColor(c.score) }}>{c.score}</span>
+                </button>
+              ))}
+            </div>
+
+            {health.priorities.length > 0 && (
+              <div className="health-priorities">
+                <span className="health-priorities-title">🎯 Priority Focus</span>
+                <div className="health-priority-chips">
+                  {health.priorities.map(p => (
+                    <button key={p.label} className={`priority-chip sev-${p.severity.toLowerCase()}`} onClick={() => onTabChange(p.tab)}>
+                      <span className="chip-sev">{p.severity}</span>
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="metrics-grid">
         {/* Metric 1: Content Analysis */}
         <div className="metric-card glass-card hover-glow" onClick={() => onTabChange('duplicate')}>

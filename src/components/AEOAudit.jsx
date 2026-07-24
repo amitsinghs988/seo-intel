@@ -80,22 +80,24 @@ export function calculatePageAEO(page) {
     }
   }
 
-  // 2. Structured Data / FAQ Schema check
+  // 2. Structured Data / Q&A Schema check
+  // Note: Google retired FAQ rich results (May 2026). QAPage is now the recommended
+  // type for genuine user Q&A; FAQPage still aids AI/LLM answer extraction & citations.
   const hasFAQSchema = schemas.some(s => /FAQPage|QAPage/i.test(s));
   if (!hasFAQSchema) {
     score -= 20;
     audits.push({
       pillar: 'AI Overviews (SGE)',
-      status: 'critical',
-      message: 'No FAQPage or QAPage schema markup detected',
-      desc: 'Schema markup validates factual entity linkages and FAQ nodes for voice search feeds.'
+      status: 'warning',
+      message: 'No QAPage / Q&A schema markup detected',
+      desc: 'Add QAPage schema for genuine Q&A blocks. Google retired FAQ rich results (May 2026), but structured Q&A still helps AI Overviews, ChatGPT, and Perplexity extract and cite answers.'
     });
   } else {
     audits.push({
       pillar: 'AI Overviews (SGE)',
       status: 'optimal',
-      message: 'FAQPage/QAPage schema markup detected',
-      desc: 'Optimal schema metadata for AI overview engines.'
+      message: 'QAPage / Q&A schema markup detected',
+      desc: 'Structured Q&A helps AI answer engines extract and cite this page.'
     });
   }
 
@@ -227,7 +229,10 @@ export function generateAEOSchemaCode(paaList) {
       }
     }`).join(',\n    ');
 
-  return `<script type="application/ld+json">
+  return `<!-- Google retired FAQ rich results (May 2026). This FAQPage markup no longer
+     earns a Google SERP feature, but still helps AI Overviews, ChatGPT & Perplexity
+     extract and cite your answers. Use QAPage for genuine user-submitted Q&A. -->
+<script type="application/ld+json">
 {
   "@context": "https://schema.org",
   "@type": "FAQPage",
