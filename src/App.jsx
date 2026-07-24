@@ -10,6 +10,49 @@ import AEOAudit from './components/AEOAudit';
 import AISEO from './components/AISEO';
 import SEOActionPlan from './components/SEOActionPlan';
 
+class ReportErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('ReportErrorBoundary caught an error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="glass-card animate-fade-in" style={{ padding: '2.5rem', textAlign: 'center', margin: '2rem auto', maxWidth: '650px' }}>
+          <h2 style={{ color: 'var(--color-danger)', marginBottom: '0.75rem' }}>⚠️ Report View Recovered</h2>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '1.5rem', lineHeight: '1.6' }}>
+            An unexpected render issue occurred for this page view: <strong>{this.state.error ? this.state.error.message : 'Unknown exception'}</strong>.
+          </p>
+          <button
+            onClick={this.props.onReset || (() => window.location.reload())}
+            style={{
+              padding: '0.6rem 1.25rem',
+              background: 'var(--color-primary)',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              fontWeight: 600,
+              cursor: 'pointer'
+            }}
+          >
+            ← Return to Dashboard
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   const [page, setPage] = useState('input'); // input, crawling, results
   const [url, setUrl] = useState('');
@@ -28,7 +71,7 @@ export default function App() {
     }
     localStorage.setItem('seointel-theme', theme);
   }, [theme]);
-  const [crawlState, setCrawlState] = useState(() => {
+  const [crawlState, setCrawlStateBase] = useState(() => {
     try {
       const saved = localStorage.getItem('seointel_crawl_state');
       if (saved) {
@@ -48,6 +91,20 @@ export default function App() {
       error: null
     };
   });
+
+  const crawlStateRef = React.useRef(crawlState);
+  const setCrawlState = (newState) => {
+    if (typeof newState === 'function') {
+      setCrawlStateBase(prev => {
+        const computed = newState(prev);
+        crawlStateRef.current = computed;
+        return computed;
+      });
+    } else {
+      crawlStateRef.current = newState;
+      setCrawlStateBase(newState);
+    }
+  };
 
   // Persist completed crawl state to localStorage
   useEffect(() => {
@@ -129,7 +186,7 @@ export default function App() {
     const path = window.location.pathname;
     const search = window.location.search;
 
-    let activeState = crawlState;
+    let activeState = crawlStateRef.current || crawlState;
 
     // Check localStorage cache if activeState is idle
     if (!activeState || activeState.status === 'idle' || !Array.isArray(activeState.pages) || activeState.pages.length === 0) {
@@ -631,16 +688,18 @@ export default function App() {
           <div className="results-page-layout">
             {selectedPageUrl ? (
               /* Overlay detail page comparison view */
-              <DuplicateDetail
-                pageData={selectedPageData}
-                pages={crawlState.pages}
-                initialTab={pageDetailTab}
-                onTabChange={(tab) => navigate(`/page?url=${encodeURIComponent(selectedPageUrl)}&tab=${tab}`)}
-                onClose={handleDetailClose}
-                onSelectPage={handleSelectPage}
-                historyList={detailHistory}
-                onGoBack={handleDetailBack}
-              />
+              <ReportErrorBoundary key={selectedPageUrl} onReset={handleDetailClose}>
+                <DuplicateDetail
+                  pageData={selectedPageData}
+                  pages={crawlState.pages}
+                  initialTab={pageDetailTab}
+                  onTabChange={(tab) => navigate(`/page?url=${encodeURIComponent(selectedPageUrl)}&tab=${tab}`)}
+                  onClose={handleDetailClose}
+                  onSelectPage={handleSelectPage}
+                  historyList={detailHistory}
+                  onGoBack={handleDetailBack}
+                />
+              </ReportErrorBoundary>
             ) : (
               /* Standard Dashboard Tab view */
               <>
