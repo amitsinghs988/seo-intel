@@ -66,9 +66,7 @@ app.post('/api/crawl/start', async (req, res) => {
     error: null
   };
 
-  res.json({ message: 'Crawl started', state: getSanitizedState() });
-
-  // Start crawl asynchronously
+  // Start crawl
   broadcastUpdate('started', getSanitizedState());
   broadcastUpdate('progress_log', { message: `Crawl session started: scanning up to ${limit} pages.` });
 
@@ -217,10 +215,18 @@ app.post('/api/crawl/start', async (req, res) => {
 
     crawlState.status = 'completed';
     broadcastUpdate('completed', { summary: crawlState.summary });
+
+    if (!res.headersSent) {
+      res.json({ message: 'Crawl completed', state: getSanitizedState(true) });
+    }
   } catch (err) {
     crawlState.status = 'error';
     crawlState.error = err.message;
     broadcastUpdate('error', { error: err.message });
+
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message, state: getSanitizedState() });
+    }
   }
 });
 
@@ -427,32 +433,38 @@ function getSanitizedState(includeDetails = false) {
   };
 
   if (includeDetails) {
-    state.pages = crawlState.pagesAnalyzed.map(p => ({
-      url: p.url,
-      title: p.title,
-      wordCount: p.wordCount,
-      duplicateWordCount: p.duplicateWordCount,
-      commonWordCount: p.commonWordCount,
-      duplicatePercent: p.duplicatePercent,
-      commonPercent: p.commonPercent,
-      uniquePercent: p.uniquePercent,
-      status: p.status,
-      loadTimeMs: p.loadTimeMs,
-      sizeBytes: p.sizeBytes,
-      error: p.error,
-      blocksCount: p.blocks.length,
-      pagePower: p.pagePower || 10,
-      metaDescription: p.metaDescription || '',
-      canonicalUrl: p.canonicalUrl || '',
-      h1Count: p.h1Count || 0,
-      h2Count: p.h2Count || 0,
-      h3Count: p.h3Count || 0,
-      robots: p.robots || '',
-      schemas: p.schemas || [],
-      imageCount: p.imageCount || 0,
-      missingAltCount: p.missingAltCount || 0,
-      hasViewport: p.hasViewport !== undefined ? p.hasViewport : true
-    }));
+    state.pages = crawlState.pagesAnalyzed.map(p => {
+      const rawPage = crawlState.pagesRaw.find(rp => rp.url === p.url);
+      return {
+        url: p.url,
+        title: p.title,
+        wordCount: p.wordCount,
+        duplicateWordCount: p.duplicateWordCount,
+        commonWordCount: p.commonWordCount,
+        duplicatePercent: p.duplicatePercent,
+        commonPercent: p.commonPercent,
+        uniquePercent: p.uniquePercent,
+        status: p.status,
+        loadTimeMs: p.loadTimeMs,
+        sizeBytes: p.sizeBytes,
+        error: p.error,
+        blocksCount: p.blocks ? p.blocks.length : 0,
+        blocks: p.blocks || [],
+        text: rawPage ? rawPage.text : (p.text || ''),
+        links: p.links || [],
+        pagePower: p.pagePower || 10,
+        metaDescription: p.metaDescription || '',
+        canonicalUrl: p.canonicalUrl || '',
+        h1Count: p.h1Count || 0,
+        h2Count: p.h2Count || 0,
+        h3Count: p.h3Count || 0,
+        robots: p.robots || '',
+        schemas: p.schemas || [],
+        imageCount: p.imageCount || 0,
+        missingAltCount: p.missingAltCount || 0,
+        hasViewport: p.hasViewport !== undefined ? p.hasViewport : true
+      };
+    });
   }
 
   return state;

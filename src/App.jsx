@@ -126,17 +126,22 @@ export default function App() {
           setSelectedPageUrl(urlParam);
           setPageDetailTab(tabParam);
           
-          try {
-            const res = await fetch(`/api/crawl/page?url=${encodeURIComponent(urlParam)}`);
-            const data = await res.json();
-            if (res.ok) {
-              setSelectedPageData(data);
-            } else {
-              alert(data.error || 'Failed to load page details');
+          const memoryPage = crawlState.pages.find(p => p.url === urlParam);
+          if (memoryPage) {
+            setSelectedPageData(memoryPage);
+          } else {
+            try {
+              const res = await fetch(`/api/crawl/page?url=${encodeURIComponent(urlParam)}`);
+              const data = await res.json();
+              if (res.ok) {
+                setSelectedPageData(data);
+              } else {
+                alert(data.error || 'Failed to load page details');
+                navigate('/results/pages');
+              }
+            } catch (e) {
               navigate('/results/pages');
             }
-          } catch (e) {
-            navigate('/results/pages');
           }
         } else {
           navigate('/results/pages');
@@ -260,6 +265,10 @@ export default function App() {
     setUrl(cleanUrl);
 
     try {
+      setPage('crawling');
+      setLogMessages(['Initiating site scan for ' + cleanUrl + '...']);
+      connectToEventStream(); // Establish SSE stream if available
+
       const res = await fetch('/api/crawl/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -267,13 +276,25 @@ export default function App() {
       });
       const data = await res.json();
       if (!res.ok) {
+        setPage('input');
         alert(data.error || 'Failed to start crawl');
+      } else if (data.state && data.state.status === 'completed') {
+        // Direct response from Serverless Function (Vercel)
+        setCrawlState({
+          status: 'completed',
+          targetUrl: cleanUrl,
+          progress: data.state.progress,
+          summary: data.state.summary,
+          pages: data.state.pages || [],
+          nearDuplicates: data.state.nearDuplicates || [],
+          error: null
+        });
+        navigate('/results/summary');
       } else {
-        setPage('crawling');
-        connectToEventStream(); // Establish fresh EventSource connection for the crawl session
         window.history.replaceState(null, '', '/');
       }
     } catch (err) {
+      setPage('input');
       alert('Network error starting crawl: ' + err.message);
     }
   };
