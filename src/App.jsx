@@ -28,14 +28,44 @@ export default function App() {
     }
     localStorage.setItem('seointel-theme', theme);
   }, [theme]);
-  const [crawlState, setCrawlState] = useState({
-    status: 'idle',
-    targetUrl: '',
-    progress: { currentUrl: '', crawledCount: 0, queueLength: 0, pagesFoundCount: 0 },
-    summary: null,
-    pages: [],
-    error: null
+  const [crawlState, setCrawlState] = useState(() => {
+    try {
+      const saved = localStorage.getItem('seointel_crawl_state');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.status === 'completed' && Array.isArray(parsed.pages) && parsed.pages.length > 0) {
+          return parsed;
+        }
+      }
+    } catch (e) {}
+    return {
+      status: 'idle',
+      targetUrl: '',
+      progress: { currentUrl: '', crawledCount: 0, queueLength: 0, pagesFoundCount: 0 },
+      summary: null,
+      pages: [],
+      nearDuplicates: [],
+      error: null
+    };
   });
+
+  // Persist completed crawl state to localStorage
+  useEffect(() => {
+    if (crawlState.status === 'completed' && Array.isArray(crawlState.pages) && crawlState.pages.length > 0) {
+      try {
+        localStorage.setItem('seointel_crawl_state', JSON.stringify({
+          status: 'completed',
+          targetUrl: crawlState.targetUrl,
+          progress: crawlState.progress,
+          summary: crawlState.summary,
+          pages: crawlState.pages,
+          nearDuplicates: crawlState.nearDuplicates
+        }));
+      } catch (e) {
+        console.error('Failed to cache crawl state to localStorage:', e);
+      }
+    }
+  }, [crawlState]);
 
   const [activeTab, setActiveTab] = useState('summary'); // summary, pages, broken
   const [selectedPageUrl, setSelectedPageUrl] = useState(null);
@@ -84,16 +114,30 @@ export default function App() {
     const path = window.location.pathname;
     const search = window.location.search;
 
-    let serverState = null;
-    try {
-      const res = await fetch('/api/crawl/results');
-      serverState = await res.json();
-    } catch (e) {
-      console.error('Failed to fetch results for router sync:', e);
-      return;
+    let activeState = crawlState;
+
+    // Check backend server results if local state is idle
+    if (activeState.status === 'idle') {
+      try {
+        const res = await fetch('/api/crawl/results');
+        const serverState = await res.json();
+        if (serverState && serverState.status === 'completed') {
+          activeState = serverState;
+          setCrawlState(serverState);
+        }
+      } catch (e) {
+        console.error('Failed to fetch results for router sync:', e);
+      }
     }
 
-    if (!serverState || serverState.status === 'idle') {
+    if (!activeState || activeState.status !== 'completed' || !Array.isArray(activeState.pages) || activeState.pages.length === 0) {
+      if (path === '/page' || path.startsWith('/results/')) {
+        const urlParams = new URLSearchParams(search);
+        const urlParam = urlParams.get('url');
+        if (urlParam) {
+          setUrl(decodeURIComponent(urlParam));
+        }
+      }
       setPage('input');
       setSelectedPageUrl(null);
       setSelectedPageData(null);
@@ -103,9 +147,7 @@ export default function App() {
       return;
     }
 
-    setCrawlState(serverState);
-
-    if (serverState.status === 'crawling' || serverState.status === 'analyzing') {
+    if (activeState.status === 'crawling' || activeState.status === 'analyzing') {
       setPage('crawling');
       setSelectedPageUrl(null);
       setSelectedPageData(null);
@@ -115,7 +157,7 @@ export default function App() {
       return;
     }
 
-    if (serverState.status === 'completed') {
+    if (activeState.status === 'completed') {
       if (path === '/page') {
         const urlParams = new URLSearchParams(search);
         const urlParam = urlParams.get('url');
@@ -126,7 +168,7 @@ export default function App() {
           setSelectedPageUrl(urlParam);
           setPageDetailTab(tabParam);
           
-          const memoryPage = crawlState.pages.find(p => p.url === urlParam);
+          const memoryPage = activeState.pages.find(p => p.url === urlParam);
           if (memoryPage) {
             setSelectedPageData(memoryPage);
           } else {
