@@ -23,7 +23,7 @@ export default function DuplicateList({ pages = [], onSelectPage }) {
         ...page,
         matchPagesCount: matchPages.size
       };
-    }).filter(page => (page.duplicatePercent || 0) > 0);
+    }).filter(page => (page.duplicatePercent || 0) > 0 || (page.commonPercent || 0) > 0 || (page.blocks && page.blocks.length > 0));
   }, [safePages]);
 
   // Filtered pages

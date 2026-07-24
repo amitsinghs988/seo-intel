@@ -117,13 +117,11 @@ app.post('/api/crawl/start', async (req, res) => {
       broadcastUpdate('progress_log', { message: 'No external outbound links found to verify.' });
     }
 
-    if (crawlState.status === 'idle') return;
-
     // Step 4: Perform Content Analysis
     crawlState.status = 'analyzing';
     broadcastUpdate('analyzing', { message: 'Performing duplicate & common boilerplate analysis...' });
 
-    const analysisResults = analyzeDuplicates(rawPages, { shingleSize: 10, minBlockWords: 15 });
+    const analysisResults = analyzeDuplicates(rawPages, { shingleSize: 4, minBlockWords: 5 });
     crawlState.pagesAnalyzed = analysisResults.pages;
     crawlState.nearDuplicates = analysisResults.nearDuplicates;
 
