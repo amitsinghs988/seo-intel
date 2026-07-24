@@ -124,25 +124,25 @@ export default function App() {
     }
   };
 
-  // Sync React page state based on URL history and Express backend status
-  const syncStateFromHistory = async () => {
+  // Sync React page state based on URL history without wiping client state
+  const syncStateFromHistory = () => {
     const path = window.location.pathname;
     const search = window.location.search;
 
     let activeState = crawlState;
 
-    // Check backend server results if local state is idle
-    if (activeState.status === 'idle') {
+    // Check localStorage cache if activeState is idle
+    if (!activeState || activeState.status === 'idle' || !Array.isArray(activeState.pages) || activeState.pages.length === 0) {
       try {
-        const res = await fetch('/api/crawl/results');
-        const serverState = await res.json();
-        if (serverState && serverState.status === 'completed') {
-          activeState = serverState;
-          setCrawlState(serverState);
+        const saved = localStorage.getItem('seointel_crawl_state');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed && parsed.status === 'completed' && Array.isArray(parsed.pages) && parsed.pages.length > 0) {
+            activeState = parsed;
+            setCrawlState(parsed);
+          }
         }
-      } catch (e) {
-        console.error('Failed to fetch results for router sync:', e);
-      }
+      } catch (e) {}
     }
 
     if (!activeState || activeState.status !== 'completed' || !Array.isArray(activeState.pages) || activeState.pages.length === 0) {
@@ -190,7 +190,6 @@ export default function App() {
           if (memoryPage) {
             setSelectedPageData(memoryPage);
           } else {
-            // Provide safe fallback object to prevent white screen
             setSelectedPageData({
               url: decodedUrl,
               title: decodedUrl,
@@ -211,16 +210,19 @@ export default function App() {
             });
           }
         } else {
-          navigate('/results/pages');
+          setPage('results');
+          setActiveTab('pages');
+          setSelectedPageUrl(null);
+          setSelectedPageData(null);
+          window.history.replaceState(null, '', '/results/pages');
         }
       } else if (path.startsWith('/results/')) {
         const tab = path.substring('/results/'.length);
         setPage('results');
-        setActiveTab(tab);
+        setActiveTab(tab || 'summary');
         setSelectedPageUrl(null);
         setSelectedPageData(null);
       } else {
-        // Default to summary view on completion
         setPage('results');
         setActiveTab('summary');
         setSelectedPageUrl(null);
