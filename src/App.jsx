@@ -242,14 +242,19 @@ export default function App() {
 
     es.addEventListener('init', (e) => {
       const state = JSON.parse(e.data);
-      setCrawlState(prev => ({
-        ...prev,
-        status: state.status,
-        targetUrl: state.targetUrl,
-        progress: state.progress || prev.progress,
-        summary: state.summary || prev.summary,
-        error: state.error
-      }));
+      setCrawlState(prev => {
+        if (prev.status === 'completed' && Array.isArray(prev.pages) && prev.pages.length > 0 && state.status === 'idle') {
+          return prev;
+        }
+        return {
+          ...prev,
+          status: state.status,
+          targetUrl: state.targetUrl,
+          progress: state.progress || prev.progress,
+          summary: state.summary || prev.summary,
+          error: state.error
+        };
+      });
     });
 
     es.addEventListener('started', (e) => {
@@ -387,30 +392,49 @@ export default function App() {
       });
     }
 
+    let pagesList = crawlState.pages;
+    if (!Array.isArray(pagesList) || pagesList.length === 0) {
+      try {
+        const saved = localStorage.getItem('seointel_crawl_state');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed && Array.isArray(parsed.pages) && parsed.pages.length > 0) {
+            pagesList = parsed.pages;
+            setCrawlState(parsed);
+          }
+        }
+      } catch (e) {}
+    }
+
     const targetNorm = normalizeUrlStr(pageUrl);
-    const memoryPage = crawlState.pages.find(p => normalizeUrlStr(p.url) === targetNorm) || crawlState.pages.find(p => p.url === pageUrl);
+    const memoryPage = (pagesList || []).find(p => normalizeUrlStr(p.url) === targetNorm) || (pagesList || []).find(p => p.url === pageUrl);
 
     setPage('results');
     setSelectedPageUrl(pageUrl);
     setPageDetailTab(tab);
-    setSelectedPageData(memoryPage || {
-      url: pageUrl,
-      title: pageUrl,
-      wordCount: 0,
-      duplicateWordCount: 0,
-      commonWordCount: 0,
-      duplicatePercent: 0,
-      commonPercent: 0,
-      uniquePercent: 100,
-      status: 200,
-      loadTimeMs: 0,
-      sizeBytes: 0,
-      blocksCount: 0,
-      blocks: [],
-      text: '',
-      links: [],
-      pagePower: 10
-    });
+    
+    if (memoryPage) {
+      setSelectedPageData(memoryPage);
+    } else {
+      setSelectedPageData({
+        url: pageUrl,
+        title: pageUrl,
+        wordCount: 0,
+        duplicateWordCount: 0,
+        commonWordCount: 0,
+        duplicatePercent: 0,
+        commonPercent: 0,
+        uniquePercent: 100,
+        status: 200,
+        loadTimeMs: 0,
+        sizeBytes: 0,
+        blocksCount: 0,
+        blocks: [],
+        text: '',
+        links: [],
+        pagePower: 10
+      });
+    }
 
     window.history.pushState(null, '', `/page?url=${encodeURIComponent(pageUrl)}&tab=${tab}`);
   };
