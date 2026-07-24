@@ -686,17 +686,17 @@ export default function EEATAudit({ pages = [], onSelectPage }) {
 
             {/* Checklist recommendations */}
             <div>
-              <h3 style={{ fontSize: '0.95rem', margin: '0 0 0.5rem 0', color: 'var(--text-dark)' }}>
-                Actionable Recommendations ({selectedAuditPage.recommendations.length})
+              <h3 style={{ fontSize: '1rem', margin: '0 0 0.75rem 0', color: 'var(--text-dark)' }}>
+                Actionable Recommendations {(selectedAuditPage.recommendations || selectedAuditPage.audits || []).length}
               </h3>
               
-              {selectedAuditPage.recommendations.length === 0 ? (
+              {(selectedAuditPage.recommendations || selectedAuditPage.audits || []).length === 0 ? (
                 <div style={{ padding: '1rem', background: 'rgba(16, 185, 129, 0.08)', border: '1px dashed var(--color-success)', color: '#047857', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 600 }}>
                   🎉 Outstanding! This page satisfies all core E-E-A-T search quality guidelines. No immediate actions are needed.
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  {selectedAuditPage.recommendations.map((rec, index) => {
+                  {(selectedAuditPage.recommendations || selectedAuditPage.audits || []).map((rec, index) => {
                     const snippet = generateEEATFixSnippet(rec.text, selectedAuditPage.url, selectedAuditPage.title);
                     const isFixOpen = openFixIndex === index;
                     const isCopied = copiedIndex === index;

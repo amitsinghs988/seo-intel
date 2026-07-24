@@ -562,8 +562,8 @@ export default function AEOAudit({ pages = [], onSelectPage }) {
                 </span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.8rem', justifyContent: 'center' }}>
-                <div>❓ Heading Questions: <strong>{selectedPage.questionsFound.length} found</strong></div>
-                <div>🏷️ Detected Schemas: <strong>{selectedPage.schemas.length > 0 ? selectedPage.schemas.join(', ') : 'None'}</strong></div>
+                <div>❓ Heading Questions: <strong>{(selectedPage.questionsFound || []).length} found</strong></div>
+                <div>🏷️ Detected Schemas: <strong>{(selectedPage.schemas || []).length > 0 ? selectedPage.schemas.join(', ') : 'None'}</strong></div>
                 <div>📱 Mobile Friendly (Viewport): <strong>Yes (Optimal)</strong></div>
               </div>
             </div>
@@ -572,7 +572,7 @@ export default function AEOAudit({ pages = [], onSelectPage }) {
             <div>
               <h3 style={{ fontSize: '0.95rem', margin: '0 0 0.5rem 0', color: 'var(--text-dark)' }}>AEO Compliance Signals</h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                {selectedPage.audits.map((audit, idx) => (
+                {(selectedPage.audits || []).map((audit, idx) => (
                   <div key={idx} style={{
                     padding: '0.75rem 1rem',
                     background: audit.status === 'optimal' ? 'rgba(16, 185, 129, 0.02)' : 'rgba(0,0,0,0.01)',

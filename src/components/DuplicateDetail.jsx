@@ -817,7 +817,7 @@ export default function DuplicateDetail({ pageData, pages = [], initialTab, onTa
           <div>
             <h3 style={{ fontSize: '1.05rem', margin: '0 0 0.75rem 0', color: 'var(--text-dark)' }}>AEO Compliance Signals</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {aeo.audits.map((rec, idx) => (
+              {(aeo.audits || []).map((rec, idx) => (
                 <div key={idx} style={{
                   padding: '0.85rem 1rem',
                   background: rec.status === 'optimal' ? 'rgba(16, 185, 129, 0.02)' : 'rgba(0,0,0,0.01)',
@@ -945,7 +945,7 @@ export default function DuplicateDetail({ pageData, pages = [], initialTab, onTa
           <div>
             <h3 style={{ fontSize: '1.05rem', margin: '0 0 0.75rem 0', color: 'var(--text-dark)' }}>Actionable GEO Recommendations</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {aiseo.audits.map((rec, idx) => (
+              {(aiseo.audits || []).map((rec, idx) => (
                 <div key={idx} style={{
                   padding: '0.85rem 1rem',
                   background: rec.status === 'optimal' ? 'rgba(16, 185, 129, 0.02)' : 'rgba(0,0,0,0.01)',
@@ -2165,88 +2165,6 @@ function SemanticNlpPanel({ text, schemas, url, title, links }) {
                   Target standard: 60-70 for general audience readability and optimal crawling retention.
                 </div>
               </div>
-            </div>
-          </div>
-
-          {/* NLP Semantic Entities */}
-          <div style={{ flex: 2, minWidth: '300px', display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-            <div style={{ flex: 1 }}>
-              <strong style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>🏢 Brand & Org Entities</strong>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', marginTop: '0.35rem' }}>
-                {nlpData.entities.orgs.length === 0 ? (
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>No org entities found.</span>
-                ) : (
-                  nlpData.entities.orgs.map((o, i) => (
-                    <span key={i} style={{ padding: '0.15rem 0.4rem', background: 'rgba(59, 130, 246, 0.1)', color: 'var(--color-primary)', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 500 }}>{o}</span>
-                  ))
-                )}
-              </div>
-            </div>
-
-            <div style={{ flex: 1 }}>
-              <strong style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>📍 Geo Entities</strong>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', marginTop: '0.35rem' }}>
-                {nlpData.entities.locs.length === 0 ? (
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>No geo entities found.</span>
-                ) : (
-                  nlpData.entities.locs.map((l, i) => (
-                    <span key={i} style={{ padding: '0.15rem 0.4rem', background: 'rgba(16, 185, 129, 0.1)', color: 'var(--color-success)', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 500 }}>{l}</span>
-                  ))
-                )}
-              </div>
-            </div>
-
-            <div style={{ flex: 1.2 }}>
-              <strong style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>📊 Numerical Citations</strong>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', marginTop: '0.35rem' }}>
-                {nlpData.entities.numbers.length === 0 ? (
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>No statistics cited.</span>
-                ) : (
-                  nlpData.entities.numbers.map((n, i) => (
-                    <span key={i} style={{ padding: '0.15rem 0.4rem', background: 'rgba(245, 158, 11, 0.1)', color: '#d97706', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 500 }}>{n}</span>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-
-        </div>
-      </div>
-
-      {/* SECTION B: ANSWER ENGINE OPTIMIZATION (AEO) */}
-      <div className="nlp-card" style={{ border: '1px solid var(--border-light)', borderRadius: '8px', padding: '1.25rem', background: 'var(--card-bg)' }}>
-        <h4 style={{ margin: '0 0 1rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#8b5cf6' }}>
-          🤖 Answer Engine Optimization (AEO) Readiness
-        </h4>
-        
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }}>
-            <span style={{ fontSize: '1.1rem' }}>
-              {schemas.length > 0 ? '✅' : '⚠️'}
-            </span>
-            <div>
-              <strong>Structured Schema Markup:</strong> {schemas.length > 0 ? `${schemas.join(', ')} found.` : 'No JSON-LD schemas detected.'}
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                {schemas.length > 0 ? 'Conversational models successfully use these entity schemas to extract core company/product facts.' : 'Add Article, FAQPage, or Organization schema so Gemini/ChatGPT can easily cite this page.'}
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <strong style={{ fontSize: '0.85rem' }}>Direct Conversational Q&A Snippets:</strong>
-            <div style={{ marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              {nlpData.qaPairs.length === 0 ? (
-                <div style={{ padding: '0.5rem 0.75rem', background: '#f3f4f6', borderRadius: '6px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                  No question-answer sentence patterns detected. Structuring headings as questions followed by direct answers improves Siri/Alexa/AI assistant citation.
-                </div>
-              ) : (
-                nlpData.qaPairs.map((pair, idx) => (
-                  <div key={idx} style={{ padding: '0.6rem', borderLeft: '3px solid #8b5cf6', background: 'rgba(139, 92, 246, 0.03)', fontSize: '0.8rem' }}>
-                    <div style={{ fontWeight: 'bold' }}>Q: {pair.question}</div>
-                    <div style={{ color: 'var(--text-dark)', marginTop: '0.2rem' }}>A: {pair.answer}</div>
-                  </div>
-                ))
-              )}
             </div>
           </div>
 

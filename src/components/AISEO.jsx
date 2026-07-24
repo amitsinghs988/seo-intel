@@ -578,16 +578,16 @@ export default function AISEO({ pages = [], onSelectPage }) {
             {/* Checklist recommendations */}
             <div>
               <h3 style={{ fontSize: '0.95rem', margin: '0 0 0.5rem 0', color: 'var(--text-dark)' }}>
-                Actionable GEO Recommendations ({selectedPage.audits.length})
+                Actionable GEO Recommendations {(selectedPage.audits || []).length}
               </h3>
               
-              {selectedPage.audits.length === 0 ? (
+              {(selectedPage.audits || []).length === 0 ? (
                 <div style={{ padding: '1rem', background: 'rgba(16, 185, 129, 0.08)', border: '1px dashed var(--color-success)', color: '#047857', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 600 }}>
                   🎉 Outstanding! This page has flawless AI search engine optimization structures.
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                  {selectedPage.audits.map((rec, index) => {
+                  {(selectedPage.audits || []).map((rec, index) => {
                     const snippet = generateAISEOFix(rec.message, selectedPage.url, selectedPage.title);
                     const isFixOpen = openFixIndex === index;
                     const isCopied = copiedIndex === index;

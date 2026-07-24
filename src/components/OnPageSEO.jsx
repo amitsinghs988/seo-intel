@@ -645,7 +645,7 @@ export default function OnPageSEO({ pages = [], onSelectPage }) {
               </h3>
               
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                {selectedPage.audits.map((audit, index) => {
+                {(selectedPage.audits || []).map((audit, index) => {
                   const isFixOpen = fixIndex === index;
                   const isCopied = copiedIndex === index;
                   const isOptimal = audit.status === 'optimal';
