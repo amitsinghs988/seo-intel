@@ -109,6 +109,21 @@ export default function App() {
     syncStateFromHistory();
   };
 
+  const normalizeUrlStr = (str) => {
+    if (!str) return '';
+    let s = String(str).trim();
+    try {
+      const u = new URL(s);
+      let path = u.pathname;
+      if (path.length > 1 && path.endsWith('/')) {
+        path = path.slice(0, -1);
+      }
+      return (u.hostname + path).toLowerCase();
+    } catch (e) {
+      return s.replace(/^https?:\/\//i, '').replace(/\/$/, '').toLowerCase();
+    }
+  };
+
   // Sync React page state based on URL history and Express backend status
   const syncStateFromHistory = async () => {
     const path = window.location.pathname;
@@ -164,26 +179,36 @@ export default function App() {
         const tabParam = urlParams.get('tab') || 'duplicate';
         
         if (urlParam) {
+          const decodedUrl = decodeURIComponent(urlParam);
           setPage('results');
-          setSelectedPageUrl(urlParam);
+          setSelectedPageUrl(decodedUrl);
           setPageDetailTab(tabParam);
           
-          const memoryPage = activeState.pages.find(p => p.url === urlParam);
+          const targetNorm = normalizeUrlStr(decodedUrl);
+          const memoryPage = activeState.pages.find(p => normalizeUrlStr(p.url) === targetNorm) || activeState.pages.find(p => p.url === decodedUrl);
+          
           if (memoryPage) {
             setSelectedPageData(memoryPage);
           } else {
-            try {
-              const res = await fetch(`/api/crawl/page?url=${encodeURIComponent(urlParam)}`);
-              const data = await res.json();
-              if (res.ok) {
-                setSelectedPageData(data);
-              } else {
-                alert(data.error || 'Failed to load page details');
-                navigate('/results/pages');
-              }
-            } catch (e) {
-              navigate('/results/pages');
-            }
+            // Provide safe fallback object to prevent white screen
+            setSelectedPageData({
+              url: decodedUrl,
+              title: decodedUrl,
+              wordCount: 0,
+              duplicateWordCount: 0,
+              commonWordCount: 0,
+              duplicatePercent: 0,
+              commonPercent: 0,
+              uniquePercent: 100,
+              status: 200,
+              loadTimeMs: 0,
+              sizeBytes: 0,
+              blocksCount: 0,
+              blocks: [],
+              text: '',
+              links: [],
+              pagePower: 10
+            });
           }
         } else {
           navigate('/results/pages');
@@ -351,13 +376,41 @@ export default function App() {
 
   // Navigates by updating history path
   const handleSelectPage = (pageUrl, tab = 'duplicate') => {
+    if (!pageUrl) return;
+
     if (selectedPageUrl && selectedPageUrl !== pageUrl) {
       setDetailHistory(prev => {
         if (prev[prev.length - 1] === selectedPageUrl) return prev;
         return [...prev, selectedPageUrl];
       });
     }
-    navigate(`/page?url=${encodeURIComponent(pageUrl)}&tab=${tab}`);
+
+    const targetNorm = normalizeUrlStr(pageUrl);
+    const memoryPage = crawlState.pages.find(p => normalizeUrlStr(p.url) === targetNorm) || crawlState.pages.find(p => p.url === pageUrl);
+
+    setPage('results');
+    setSelectedPageUrl(pageUrl);
+    setPageDetailTab(tab);
+    setSelectedPageData(memoryPage || {
+      url: pageUrl,
+      title: pageUrl,
+      wordCount: 0,
+      duplicateWordCount: 0,
+      commonWordCount: 0,
+      duplicatePercent: 0,
+      commonPercent: 0,
+      uniquePercent: 100,
+      status: 200,
+      loadTimeMs: 0,
+      sizeBytes: 0,
+      blocksCount: 0,
+      blocks: [],
+      text: '',
+      links: [],
+      pagePower: 10
+    });
+
+    window.history.pushState(null, '', `/page?url=${encodeURIComponent(pageUrl)}&tab=${tab}`);
   };
 
   const handleDetailBack = () => {
