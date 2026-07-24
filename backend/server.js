@@ -39,7 +39,7 @@ function broadcastUpdate(type, data) {
 // Start crawl endpoint
 app.post('/api/crawl/start', async (req, res) => {
   const { url, maxPages = 100, checkExternal = true } = req.body;
-  const limit = Number(maxPages) || 100;
+  const limit = process.env.VERCEL ? Math.min(Number(maxPages) || 30, 30) : (Number(maxPages) || 100);
 
   if (!url) {
     return res.status(400).json({ error: 'URL is required' });
