@@ -6,6 +6,28 @@ import { calculatePageAISEO, generateAISEOFix } from './AISEO';
 import { analyzeSiteArchitecture } from './SiloAnalyzer';
 
 export default function DuplicateDetail({ pageData, pages = [], initialTab, onTabChange, onClose, onSelectPage, historyList = [], onGoBack }) {
+  // Destructure safely with defaults right at the top before any hooks or effects reference text/title/url
+  const {
+    url = '',
+    title = '',
+    wordCount = 0,
+    duplicateWordCount = 0,
+    commonWordCount = 0,
+    duplicatePercent = 0,
+    commonPercent = 0,
+    status = 200,
+    loadTimeMs = 0,
+    sizeBytes = 0,
+    blocks = [],
+    text = '',
+    links = [],
+    metaDescription = '',
+    canonicalUrl = '',
+    h1Count = 0,
+    robots = '',
+    schemas = []
+  } = pageData || {};
+
   const [activeSubTab, setActiveSubTab] = useState(initialTab || 'duplicate');
 
   useEffect(() => {
@@ -26,7 +48,7 @@ export default function DuplicateDetail({ pageData, pages = [], initialTab, onTa
   const [selectedBlockIdx, setSelectedBlockIdx] = useState(null);
   const [highlightFilter, setHighlightFilter] = useState('all'); // all, duplicate, common, none
   const [viewMode, setViewMode] = useState('text'); // text, page
-  const [liveText, setLiveText] = useState('');
+  const [liveText, setLiveText] = useState(text || '');
 
   useEffect(() => {
     if (text) {
@@ -166,28 +188,6 @@ export default function DuplicateDetail({ pageData, pages = [], initialTab, onTa
 
   const [aiseoFixIndex, setAiseoFixIndex] = useState(null);
   const [aiseoCopiedIndex, setAiseoCopiedIndex] = useState(null);
-
-  // Destructure safely with defaults to prevent crashing during initial render when pageData is null
-  const {
-    url = '',
-    title = '',
-    wordCount = 0,
-    duplicateWordCount = 0,
-    commonWordCount = 0,
-    duplicatePercent = 0,
-    commonPercent = 0,
-    status = 200,
-    loadTimeMs = 0,
-    sizeBytes = 0,
-    blocks = [],
-    text = '',
-    links = [],
-    metaDescription = '',
-    canonicalUrl = '',
-    h1Count = 0,
-    robots = '',
-    schemas = []
-  } = pageData || {};
 
   // Calculate matching stats per page URL, breaking it down into duplicate and common totals
   const matchStats = useMemo(() => {
