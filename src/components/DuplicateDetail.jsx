@@ -1126,7 +1126,7 @@ export default function DuplicateDetail({ pageData, pages = [], initialTab, onTa
     // Intelligent Silo Identification Heuristics
     const pagePath = (() => {
       try {
-        return new URL(url).pathname.replace(/\/$/, '');
+        return new URL(url).pathname.replace(new RegExp('/$'), '');
       } catch (e) {
         return '';
       }
@@ -1135,7 +1135,7 @@ export default function DuplicateDetail({ pageData, pages = [], initialTab, onTa
     const isUtilityPage = 
       pagePath === '' || 
       pagePath === '/' || 
-      /\b(about|contact|privacy|terms|legal|disclaimer|cookie|sitemap|faq|help|support)\b/i.test(pagePath);
+      new RegExp('\\b(about|contact|privacy|terms|legal|disclaimer|cookie|sitemap|faq|help|support)\\b', 'i').test(pagePath);
 
     // Compute Silo Link recommendations if pages are loaded
     let siloRecommendationHtml = null;
@@ -1170,7 +1170,8 @@ export default function DuplicateDetail({ pageData, pages = [], initialTab, onTa
                   <div style={{ fontSize: '0.68rem', display: 'flex', flexDirection: 'column', gap: '0.35rem', background: 'rgba(0,0,0,0.02)', padding: '0.5rem', borderRadius: '6px', border: '1px dashed var(--border-light)' }}>
                     <strong>Recommended down-links:</strong>
                     {children.map(child => {
-                      const snippet = `<a href="${child.url.replace(/^(?:\/\/|[^\/]+)*\//, '/')}">${child.title || 'Support Article'}</a>`;
+                      const path = (() => { try { return new URL(child.url).pathname; } catch(e) { return child.url; } })();
+                      const snippet = `<a href="${path}">${child.title || 'Support Article'}</a>`;
                       return (
                         <div key={child.url} style={{ fontFamily: 'monospace', background: 'var(--bg-card)', padding: '0.25rem', borderRadius: '4px', border: '1px solid var(--border-light)', overflowX: 'auto', whiteSpace: 'nowrap' }} title="Copy this link snippet">
                           {snippet}
@@ -1183,7 +1184,7 @@ export default function DuplicateDetail({ pageData, pages = [], initialTab, onTa
             );
           } else if (currentSilo.parentPage) {
             // Suggest supporting page link flows (pointing back up to parent category)
-            const parentRelativePath = currentSilo.parentPage.url.replace(/^(?:\/\/|[^\/]+)*\//, '/');
+            const parentRelativePath = (() => { try { return new URL(currentSilo.parentPage.url).pathname; } catch(e) { return currentSilo.parentPage.url; } })();
             const anchorSnippet = `<a href="${parentRelativePath}">${currentSilo.parentPage.title || 'Category Index'}</a>`;
             
             siloRecommendationHtml = (
@@ -1332,7 +1333,7 @@ export default function DuplicateDetail({ pageData, pages = [], initialTab, onTa
           <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', margin: '0 0 0.5rem 0' }}>
             Establish solid internal anchor siloing to maximize PageRank:
           </p>
-          </div>
+          {siloRecommendationHtml}
         </div>
       </div>
     );
