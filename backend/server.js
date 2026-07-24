@@ -288,12 +288,7 @@ app.get('/api/crawl/view-html', async (req, res) => {
   }
 
   try {
-    const page = crawlState.pagesAnalyzed.find(p => p.url === url);
-    if (!page) {
-      return res.status(404).send('Page not found in active crawl session');
-    }
-
-    // Fetch the live site HTML
+    // Fetch the live site HTML directly
     const response = await fetch(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
