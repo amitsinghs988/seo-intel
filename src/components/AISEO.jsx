@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 
 /**
  * Calculates page-level AI SEO (Generative Engine Optimization) scores and simulation logs.
@@ -9,7 +9,6 @@ export function calculatePageAISEO(page) {
   const url = page.url || '';
   const schemas = page.schemas || [];
   const robots = page.robots || '';
-  const links = page.links || [];
 
   let score = 100;
   const audits = [];
@@ -68,7 +67,7 @@ export function calculatePageAISEO(page) {
   // Check for bullet lists (*), steps (numbers), or headings (###)
   const bulletsCount = (text.match(/\n\*/g) || []).length;
   const stepsCount = (text.match(/\n\d+\./g) || []).length;
-  const headingsCount = page.h2Count + page.h3Count;
+  const headingsCount = (page.h2Count || 0) + (page.h3Count || 0);
 
   if (bulletsCount === 0 && stepsCount === 0) {
     score -= 15;
@@ -328,7 +327,7 @@ export default function AISEO({ pages = [], onSelectPage }) {
           <h3 style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Site-Wide Entity Index</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: '0.8rem' }}>
             <div>🏢 Entity Schemas: <strong>{pages.filter(p => p.schemas && p.schemas.some(s => /Organization|LocalBusiness|Brand/i.test(s))).length}</strong></div>
-            <div>🤖 Scraper Blocks: <strong>{pages.filter(p => p.robots && /noindex/i.test(p.robots)).length} pages</strong></div>
+            <div>🤖 Scraper Blocks: <strong>{pages.filter(p => p.robots && /noindex|nofollow/i.test(p.robots)).length} pages</strong></div>
             <div>📈 Research statistics: <strong>{auditedPages.filter(p => p.hasStats).length} cited pages</strong></div>
           </div>
         </div>

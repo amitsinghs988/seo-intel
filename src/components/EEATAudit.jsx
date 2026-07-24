@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 
 /**
  * Calculates detailed E-E-A-T (Experience, Expertise, Authoritativeness, Trustworthiness)
@@ -407,7 +407,7 @@ export default function EEATAudit({ pages = [], onSelectPage }) {
         <div className="eeat-card glass-card" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
           <h3 style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Core Signals Found</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: '0.8rem' }}>
-            <div>🔒 SSL Enabled Pages: <strong>{pages.filter(p => p.url.startsWith('https:')).length}</strong></div>
+            <div>🔒 SSL Enabled Pages: <strong>{pages.filter(p => (p.url || '').startsWith('https:')).length}</strong></div>
             <div>🏷️ Pages with JSON-LD Schema: <strong>{pages.filter(p => p.schemas && p.schemas.length > 0).length}</strong></div>
             <div>🎓 Expert Credentials Mentioned: <strong>{pages.filter(p => p.text && /\b(certified|degree|expert|phd|md|dds)\b/i.test(p.text)).length}</strong></div>
           </div>

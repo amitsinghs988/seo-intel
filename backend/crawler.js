@@ -353,7 +353,6 @@ export async function crawlWebsite(seedUrl, maxPages = 100, preDiscoveredUrls = 
   cookieJar.clear();
 
   const seedParsed = new URL(normalizedSeed);
-  const origin = seedParsed.origin;
   const domain = seedParsed.hostname;
 
   const visited = new Set();
@@ -599,6 +598,18 @@ export async function crawlWebsite(seedUrl, maxPages = 100, preDiscoveredUrls = 
       });
     }
   }
+
+  // Emit a final progress snapshot so the UI reflects the true crawled count
+  // (per-iteration progress is emitted before the page is processed, lagging by one).
+  onUpdate({
+    type: 'progress',
+    data: {
+      currentUrl: '',
+      crawledCount,
+      queueLength: queue.length,
+      pagesFoundCount: discovered.size
+    }
+  });
 
   return pages;
 }

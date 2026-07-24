@@ -11,13 +11,9 @@ export default function DuplicateDetail({ pageData, pages = [], initialTab, onTa
     url = '',
     title = '',
     wordCount = 0,
-    duplicateWordCount = 0,
-    commonWordCount = 0,
     duplicatePercent = 0,
     commonPercent = 0,
     status = 200,
-    loadTimeMs = 0,
-    sizeBytes = 0,
     blocks = [],
     text = '',
     links = [],
@@ -51,9 +47,9 @@ export default function DuplicateDetail({ pageData, pages = [], initialTab, onTa
   const [liveText, setLiveText] = useState(text || '');
 
   useEffect(() => {
-    if (text) {
-      setLiveText(text);
-    }
+    // Keep the optimizer's editable buffer in sync with the incoming page text,
+    // including when the new page has empty text (avoids showing stale content).
+    setLiveText(text || '');
   }, [text]);
 
   const lsiKeywords = useMemo(() => {
@@ -1815,9 +1811,9 @@ export default function DuplicateDetail({ pageData, pages = [], initialTab, onTa
                       <span><strong>Type:</strong> <span style={{ color: activeBlock.type === 'common' ? 'var(--color-primary)' : '#ff859b', fontWeight: 600 }}>{activeBlock.type}</span></span>
                     </div>
                     <div className="block-matches-list">
-                      <strong>Matches found on ({activeBlock.matches.length}):</strong>
+                      <strong>Matches found on ({(activeBlock.matches || []).length}):</strong>
                       <ul style={{ maxHeight: '120px', overflowY: 'auto' }}>
-                        {activeBlock.matches.map(matchUrl => (
+                        {(activeBlock.matches || []).map(matchUrl => (
                           <li key={matchUrl} className="match-url-item">
                             <button className="link-style-btn" onClick={() => onSelectPage(matchUrl)}>
                               {matchUrl}
@@ -2044,7 +2040,20 @@ function SemanticNlpPanel({ text, schemas, url, title, links }) {
     
     const wordCount = words.length;
     const sentenceCount = sentences.length || 1;
-    
+
+    // Text with no word characters (e.g. only punctuation/whitespace) would make the
+    // Flesch division 0/0 = NaN. Return the same neutral default the empty-text guard uses.
+    if (wordCount === 0) return {
+      readingEase: 0,
+      gradeLevel: 'N/A',
+      entities: { orgs: [], locs: [], numbers: [] },
+      qaPairs: [],
+      authoritativeToneScore: 0,
+      infoDensity: 0,
+      citationCount: 0,
+      geoScore: 0
+    };
+
     let totalSyllables = 0;
     words.forEach(w => {
       totalSyllables += countSyllables(w);
@@ -2107,14 +2116,6 @@ function SemanticNlpPanel({ text, schemas, url, title, links }) {
     });
 
     const authoritativeWords = /\b(verified|demonstrates|proves|concludes|research|statistics|studies|data|validated|according to)\b/i;
-    const weakWords = /\b(maybe|perhaps|possibly|i think|in my opinion|sometimes|probably)\b/i;
-
-    let authHits = 0;
-    let weakHits = 0;
-    words.forEach(w => {
-      if (authoritativeWords.test(w)) authHits++;
-      if (weakWords.test(w)) weakHits++;
-    });
 
     const totalAuthSentences = sentences.filter(s => authoritativeWords.test(s)).length;
     const authoritativeToneScore = Math.min(100, Math.round(((totalAuthSentences + 1) / (sentences.length || 1)) * 100));
@@ -2139,7 +2140,7 @@ function SemanticNlpPanel({ text, schemas, url, title, links }) {
       citationCount: externalLinksCount,
       geoScore
     };
-  }, [text, schemas, links]);
+  }, [text, links]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>

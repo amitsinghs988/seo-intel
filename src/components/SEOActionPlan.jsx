@@ -1,14 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 
 export default function SEOActionPlan({ pages = [] }) {
   // 1. Audit stats from crawled pages to show contextual warnings in tasks
   const technicalErrorsCount = pages.filter(p => (p.h1Count || 0) !== 1 || (p.title || '').length < 40 || !(p.metaDescription || '')).length;
   const eeatErrorsCount = pages.filter(p => {
-    const isHttps = p.url.startsWith('https:');
+    const isHttps = (p.url || '').startsWith('https:');
     const hasSchema = p.schemas && p.schemas.length > 0;
     return !isHttps || !hasSchema;
   }).length;
-  const aeoErrorsCount = pages.filter(p => p.schemas && !p.schemas.some(s => /FAQPage|QAPage/i.test(s))).length;
+  const aeoErrorsCount = pages.filter(p => !(p.schemas || []).some(s => /FAQPage|QAPage/i.test(s))).length;
 
   // 2. Default task arrays with unique IDs
   const defaultTasks = {
@@ -52,16 +52,24 @@ export default function SEOActionPlan({ pages = [] }) {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        // Sync alerts in case crawl has run
-        Object.keys(defaultTasks).forEach(phase => {
-          if (parsed[phase]) {
-            parsed[phase] = parsed[phase].map(pt => {
-              const defT = defaultTasks[phase].find(dt => dt.id === pt.id);
-              return { ...pt, alert: defT ? defT.alert : null };
-            });
-          }
-        });
-        return parsed;
+        // Guard against stale/malformed persisted shapes (e.g. an older schema version).
+        // All three phases must exist as arrays, otherwise fall back to fresh defaults.
+        const validShape = parsed
+          && Array.isArray(parsed.phase1)
+          && Array.isArray(parsed.phase2)
+          && Array.isArray(parsed.phase3);
+        if (validShape) {
+          // Sync alerts in case crawl has run
+          Object.keys(defaultTasks).forEach(phase => {
+            if (Array.isArray(parsed[phase])) {
+              parsed[phase] = parsed[phase].map(pt => {
+                const defT = defaultTasks[phase].find(dt => dt.id === pt.id);
+                return { ...pt, alert: defT ? defT.alert : null };
+              });
+            }
+          });
+          return parsed;
+        }
       } catch (e) {}
     }
     return defaultTasks;
@@ -90,23 +98,27 @@ export default function SEOActionPlan({ pages = [] }) {
     tasks.phase2.filter(t => t.checked).length + 
     tasks.phase3.filter(t => t.checked).length;
   
-  const globalPercent = Math.round((completedTasks / totalTasks) * 100);
+  const globalPercent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+  const phasePercent = (arr) => arr.length > 0
+    ? Math.round((arr.filter(t => t.checked).length / arr.length) * 100)
+    : 0;
 
   const phaseStats = {
     phase1: {
       count: tasks.phase1.length,
       done: tasks.phase1.filter(t => t.checked).length,
-      percent: Math.round((tasks.phase1.filter(t => t.checked).length / tasks.phase1.length) * 100)
+      percent: phasePercent(tasks.phase1)
     },
     phase2: {
       count: tasks.phase2.length,
       done: tasks.phase2.filter(t => t.checked).length,
-      percent: Math.round((tasks.phase2.filter(t => t.checked).length / tasks.phase2.length) * 100)
+      percent: phasePercent(tasks.phase2)
     },
     phase3: {
       count: tasks.phase3.length,
       done: tasks.phase3.filter(t => t.checked).length,
-      percent: Math.round((tasks.phase3.filter(t => t.checked).length / tasks.phase3.length) * 100)
+      percent: phasePercent(tasks.phase3)
     }
   };
 

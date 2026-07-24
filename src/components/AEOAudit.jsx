@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 
 /**
  * Evaluates a page's text and structure for AEO (Answer Engine Optimization) compliance.
@@ -9,7 +9,6 @@ export function calculatePageAEO(page) {
   const url = page.url || '';
   const schemas = page.schemas || [];
   const loadTimeMs = page.loadTimeMs || 0;
-  const isHttps = url.startsWith('https:');
 
   let score = 100;
   const audits = [];

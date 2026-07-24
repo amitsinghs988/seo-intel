@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 
 /**
  * Calculates page-level technical SEO compliance score and feedback logs.
@@ -386,7 +386,7 @@ export default function OnPageSEO({ pages = [], onSelectPage }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: '0.8rem' }}>
             <div>📄 Pages with H1 violations: <strong>{pages.filter(p => (p.h1Count || 0) !== 1).length}</strong></div>
             <div>🖼️ Images missing alt tags: <strong>{pages.reduce((acc, p) => acc + (p.missingAltCount || 0), 0)}</strong></div>
-            <div>📱 Pages missing Viewport meta: <strong>{pages.filter(p => !p.hasViewport).length}</strong></div>
+            <div>📱 Pages missing Viewport meta: <strong>{pages.filter(p => p.hasViewport === false).length}</strong></div>
           </div>
         </div>
 

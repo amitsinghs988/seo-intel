@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 
 export default function PageList({ pages = [], onSelectPage }) {
   const [search, setSearch] = useState('');
@@ -179,13 +179,13 @@ export default function PageList({ pages = [], onSelectPage }) {
             className={`filter-tab ${filterType === 'duplicated' ? 'active' : ''}`}
             onClick={() => setFilterType('duplicated')}
           >
-            Duplicated ({safePages.filter(p => (p.duplicatePercent || 0) > 10).length})
+            Duplicated ({safePages.filter(p => p && (p.duplicatePercent || 0) > 10).length})
           </button>
           <button 
             className={`filter-tab ${filterType === 'errors' ? 'active' : ''}`}
             onClick={() => setFilterType('errors')}
           >
-            Skipped/Errors ({safePages.filter(p => !p.status || p.status === 0 || p.status >= 300).length})
+            Skipped/Errors ({safePages.filter(p => p && (!p.status || p.status === 0 || p.status >= 300)).length})
           </button>
         </div>
       </div>

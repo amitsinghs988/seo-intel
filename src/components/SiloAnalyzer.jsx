@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 
 /**
  * Groups and analyzes pages into thematic silos / topic clusters.
@@ -7,7 +7,6 @@ import React, { useState, useMemo } from 'react';
 export function analyzeSiteArchitecture(pages) {
   if (!Array.isArray(pages)) pages = [];
   const urlToSilo = {};
-  const pageSiloMap = new Map();
 
   // First pass: Assign each page to a logical Silo based on its path structure or URL keyword prefix
   const processedPages = pages.map(page => {
@@ -113,8 +112,9 @@ export function analyzeSiteArchitecture(pages) {
     let parentPage = null;
     let shortestLen = 9999;
     silo.pages.forEach(p => {
-      if (p.url.length < shortestLen) {
-        shortestLen = p.url.length;
+      const pUrlLen = (p.url || '').length;
+      if (pUrlLen < shortestLen) {
+        shortestLen = pUrlLen;
         parentPage = p;
       }
     });
@@ -359,7 +359,7 @@ export default function SiloAnalyzer({ pages = [], onSelectPage }) {
                           >
                             <div>
                               <strong style={{ textDecoration: onSelectPage ? 'underline' : 'none' }}>{page.title}</strong>
-                              <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem', marginLeft: '0.5rem' }}>({page.url.split('/').pop()})</span>
+                              <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem', marginLeft: '0.5rem' }}>({(page.url || '').split('/').pop()})</span>
                             </div>
                             
                             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>

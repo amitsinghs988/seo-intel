@@ -159,6 +159,10 @@ export default function App() {
       }
       window.removeEventListener('popstate', handlePopState);
     };
+    // Run-once on mount: opens the single SSE connection, seeds state from the URL,
+    // and wires the popstate listener. connectToEventStream/syncStateFromHistory are
+    // stable for this purpose and must not re-run (that would reconnect on every render).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const navigate = (path) => {

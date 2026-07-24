@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 
 export default function DuplicateList({ pages = [], onSelectPage }) {
   const [search, setSearch] = useState('');

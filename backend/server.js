@@ -79,8 +79,16 @@ app.post('/api/crawl/start', async (req, res) => {
       broadcastUpdate('progress_log', { message: logEvent.message });
     };
 
+    // Cancellation is requested via /api/crawl/cancel, which flips status to 'idle'.
+    const isCancelled = () => crawlState.status === 'idle';
+
     // Step 1: Discover sitemap URLs
-    const sitemapUrls = await discoverSitemapUrls(url, sitemapLogCallback);
+    const sitemapUrls = await discoverSitemapUrls(url, sitemapLogCallback, isCancelled);
+
+    if (isCancelled()) {
+      if (!res.headersSent) res.json({ message: 'Crawl cancelled', state: getSanitizedState() });
+      return;
+    }
 
     // Step 2: Internal Crawler
     broadcastUpdate('progress_log', { message: 'Starting internal page crawler...' });
@@ -93,7 +101,12 @@ app.post('/api/crawl/start', async (req, res) => {
       } else if (progressEvent.type === 'progress_log') {
         broadcastUpdate('progress_log', { message: progressEvent.message });
       }
-    });
+    }, isCancelled);
+
+    if (isCancelled()) {
+      if (!res.headersSent) res.json({ message: 'Crawl cancelled', state: getSanitizedState() });
+      return;
+    }
 
     crawlState.pagesRaw = rawPages;
 
@@ -114,7 +127,7 @@ app.post('/api/crawl/start', async (req, res) => {
       // Cap at 20 links for fast serverless execution
       const slicedExternalUrls = uniqueExternalUrls.slice(0, 20);
       broadcastUpdate('progress_log', { message: `Found ${uniqueExternalUrls.length} unique external links. Verifying top ${slicedExternalUrls.length}...` });
-      externalValidationResults = await validateExternalLinks(slicedExternalUrls, sitemapLogCallback);
+      externalValidationResults = await validateExternalLinks(slicedExternalUrls, sitemapLogCallback, isCancelled);
     } else if (!checkExternal) {
       broadcastUpdate('progress_log', { message: 'Outbound external links verification skipped.' });
     } else {
@@ -291,6 +304,12 @@ app.get('/api/crawl/view-html', async (req, res) => {
     return res.status(400).send('URL parameter is required');
   }
 
+  // Look up the analyzed page so we can inject its duplicate/common blocks for highlighting.
+  // Falls back to an empty highlight set if the page isn't in the current crawl state
+  // (e.g. serverless cold start), so the live replica still renders.
+  const page = crawlState.pagesAnalyzed.find(p => p.url === url);
+  const highlightBlocks = page && Array.isArray(page.blocks) ? page.blocks : [];
+
   try {
     // Fetch the live site HTML directly
     const response = await fetch(url, {
@@ -317,7 +336,7 @@ app.get('/api/crawl/view-html', async (req, res) => {
     const injectedScript = `
       <script>
         (function() {
-          const blocks = ${JSON.stringify(page.blocks)};
+          const blocks = ${JSON.stringify(highlightBlocks)};
           
           function highlightTextInDOM(element, text, type) {
             const normalizedText = text.replace(/\\s+/g, ' ').trim().toLowerCase();

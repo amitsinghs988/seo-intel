@@ -1,5 +1,3 @@
-import React from 'react';
-
 export default function Dashboard({ summary, nearDuplicates = [], pages = [], onTabChange }) {
   if (!summary) return null;
 
@@ -7,9 +5,6 @@ export default function Dashboard({ summary, nearDuplicates = [], pages = [], on
     totalPages = 0,
     successfulPagesCount = 0,
     skippedPagesCount = 0,
-    totalWords = 0,
-    totalDuplicateWords = 0,
-    totalCommonWords = 0,
     avgDuplicatePercent = 0,
     avgCommonPercent = 0,
     avgUniquePercent = 0,
