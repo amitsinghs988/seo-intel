@@ -160,6 +160,7 @@ export function calculatePageEEAT(page) {
       authority: authoritativenessScore,
       trust: trustworthinessScore
     },
+    audits: recommendations,
     recommendations,
     signals: {
       firstPersonCount: firstPersonPronouns,

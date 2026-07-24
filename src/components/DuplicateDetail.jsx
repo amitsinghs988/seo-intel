@@ -662,30 +662,34 @@ export default function DuplicateDetail({ pageData, pages = [], initialTab, onTa
   };
 
   // E-E-A-T Dashboard Tab
+  // E-E-A-T Dashboard Tab
   const renderEEATTab = () => {
-    const eeat = calculatePageEEAT(pageData);
+    const eeat = calculatePageEEAT(pageData) || {};
+    const pillars = eeat.pillars || { experience: 0, expertise: 0, authority: 0, trust: 0 };
+    const auditsList = eeat.audits || eeat.recommendations || [];
+
     return (
       <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '1.5rem', marginTop: '1rem', alignItems: 'start' }}>
         {/* Left Side: Score & Checklist */}
         <div className="glass-card" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center', background: 'rgba(0,0,0,0.02)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <span style={{ fontSize: '2.5rem', fontWeight: 800, color: eeat.score >= 80 ? 'var(--color-success)' : eeat.score >= 50 ? 'var(--color-warning)' : 'var(--color-danger)' }}>
-                {eeat.score}%
+              <span style={{ fontSize: '2.5rem', fontWeight: 800, color: (eeat.score || 0) >= 80 ? 'var(--color-success)' : (eeat.score || 0) >= 50 ? 'var(--color-warning)' : 'var(--color-danger)' }}>
+                {eeat.score || 0}%
               </span>
               <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>E-E-A-T Score</span>
             </div>
             <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-              <div>👉 Experience Level: <strong>{eeat.pillars.experience}/25</strong></div>
-              <div style={{ marginTop: '0.25rem' }}>🎓 Expertise Signal: <strong>{eeat.pillars.expertise}/25</strong></div>
-              <div style={{ marginTop: '0.25rem' }}>🛡️ Trust & Citation Probability: <strong>{eeat.rating}</strong></div>
+              <div>👉 Experience Level: <strong>{pillars.experience}/25</strong></div>
+              <div style={{ marginTop: '0.25rem' }}>🎓 Expertise Signal: <strong>{pillars.expertise}/25</strong></div>
+              <div style={{ marginTop: '0.25rem' }}>🛡️ Trust & Citation Probability: <strong>{eeat.rating || 'Needs Audit'}</strong></div>
             </div>
           </div>
 
           <div>
             <h3 style={{ fontSize: '1.05rem', margin: '0 0 0.75rem 0', color: 'var(--text-dark)' }}>E-E-A-T Quality Signals</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {eeat.audits.map((rec, idx) => (
+              {auditsList.map((rec, idx) => (
                 <div key={idx} style={{
                   padding: '0.85rem 1rem',
                   background: rec.status === 'optimal' ? 'rgba(16, 185, 129, 0.02)' : 'rgba(0,0,0,0.01)',
@@ -735,8 +739,8 @@ export default function DuplicateDetail({ pageData, pages = [], initialTab, onTa
               Select any E-E-A-T recommendation on the left list to copy tailored quality signals code.
             </p>
 
-            {eeatFixIndex !== null && eeat.audits[eeatFixIndex] ? (() => {
-              const auditItem = eeat.audits[eeatFixIndex];
+            {eeatFixIndex !== null && auditsList[eeatFixIndex] ? (() => {
+              const auditItem = auditsList[eeatFixIndex];
               const snippet = generateEEATFixSnippet(auditItem.message, url, title);
               const isCopied = eeatCopiedIndex === eeatFixIndex;
 
