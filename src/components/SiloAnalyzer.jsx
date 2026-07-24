@@ -5,6 +5,7 @@ import React, { useState, useMemo } from 'react';
  * Evaluates internal link leakage to calculate structural silo health.
  */
 export function analyzeSiteArchitecture(pages) {
+  if (!Array.isArray(pages)) pages = [];
   const urlToSilo = {};
   const pageSiloMap = new Map();
 

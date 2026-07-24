@@ -4,6 +4,7 @@ import React, { useState, useMemo } from 'react';
  * Calculates page-level AI SEO (Generative Engine Optimization) scores and simulation logs.
  */
 export function calculatePageAISEO(page) {
+  if (!page) page = {};
   const text = page.text || '';
   const url = page.url || '';
   const schemas = page.schemas || [];

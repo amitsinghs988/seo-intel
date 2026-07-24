@@ -4,6 +4,7 @@ import React, { useState, useMemo } from 'react';
  * Calculates page-level technical SEO compliance score and feedback logs.
  */
 export function calculateOnPageSEO(page) {
+  if (!page) page = {};
   const url = page.url || '';
   const title = page.title || '';
   const description = page.metaDescription || '';

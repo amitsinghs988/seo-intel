@@ -4,6 +4,7 @@ import React, { useState, useMemo } from 'react';
  * Evaluates a page's text and structure for AEO (Answer Engine Optimization) compliance.
  */
 export function calculatePageAEO(page) {
+  if (!page) page = {};
   const text = page.text || '';
   const url = page.url || '';
   const schemas = page.schemas || [];

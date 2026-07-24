@@ -5,6 +5,7 @@ import React, { useState, useMemo } from 'react';
  * scores and actionable recommendations for a given page.
  */
 export function calculatePageEEAT(page) {
+  if (!page) page = {};
   const text = page.text || '';
   const url = page.url || '';
   const schemas = page.schemas || [];
