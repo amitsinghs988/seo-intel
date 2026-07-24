@@ -38,6 +38,10 @@ function broadcastUpdate(type, data) {
 
 // Start crawl endpoint
 app.post('/api/crawl/start', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+
   const { url, maxPages = 100, checkExternal = true } = req.body;
   const limit = process.env.VERCEL ? Math.min(Number(maxPages) || 30, 30) : (Number(maxPages) || 100);
 

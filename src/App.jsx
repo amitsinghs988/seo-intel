@@ -396,13 +396,38 @@ export default function App() {
     setUrl(cleanUrl);
 
     try {
+      // 1. Purge old localStorage crawl cache so re-crawling never loads old cached state
+      try {
+        localStorage.removeItem('seointel_crawl_state');
+      } catch (e) {}
+
+      // 2. Immediately reset React state & ref to fresh crawling state
+      const freshState = {
+        status: 'crawling',
+        targetUrl: cleanUrl,
+        progress: { currentUrl: cleanUrl, crawledCount: 0, queueLength: 0, pagesFoundCount: 0 },
+        pagesRaw: [],
+        pagesAnalyzed: [],
+        pages: [],
+        nearDuplicates: [],
+        summary: null,
+        error: null
+      };
+      setCrawlState(freshState);
+      setSelectedPageUrl(null);
+      setSelectedPageData(null);
+      setDetailHistory([]);
+
       setPage('crawling');
-      setLogMessages(['Initiating site scan for ' + cleanUrl + '...']);
+      setLogMessages(['Initiating fresh live scan for ' + cleanUrl + '...']);
       connectToEventStream(); // Establish SSE stream if available
 
       const res = await fetch('/api/crawl/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache'
+        },
         body: JSON.stringify({ url: cleanUrl, maxPages, checkExternal })
       });
       const data = await res.json();
