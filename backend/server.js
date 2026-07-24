@@ -76,8 +76,7 @@ app.post('/api/crawl/start', async (req, res) => {
     };
 
     // Step 1: Discover sitemap URLs
-    const sitemapUrls = await discoverSitemapUrls(url, sitemapLogCallback, () => crawlState.status === 'idle');
-    if (crawlState.status === 'idle') return;
+    const sitemapUrls = await discoverSitemapUrls(url, sitemapLogCallback);
 
     // Step 2: Internal Crawler
     broadcastUpdate('progress_log', { message: 'Starting internal page crawler...' });
@@ -90,9 +89,8 @@ app.post('/api/crawl/start', async (req, res) => {
       } else if (progressEvent.type === 'progress_log') {
         broadcastUpdate('progress_log', { message: progressEvent.message });
       }
-    }, () => crawlState.status === 'idle');
+    });
 
-    if (crawlState.status === 'idle') return;
     crawlState.pagesRaw = rawPages;
 
     // Step 3: Validate External Outbound Links
@@ -109,11 +107,10 @@ app.post('/api/crawl/start', async (req, res) => {
     let externalValidationResults = [];
     
     if (checkExternal && uniqueExternalUrls.length > 0) {
-      if (crawlState.status === 'idle') return;
-      // Cap at 100 links to prevent extremely long delays
-      const slicedExternalUrls = uniqueExternalUrls.slice(0, 100);
+      // Cap at 20 links for fast serverless execution
+      const slicedExternalUrls = uniqueExternalUrls.slice(0, 20);
       broadcastUpdate('progress_log', { message: `Found ${uniqueExternalUrls.length} unique external links. Verifying top ${slicedExternalUrls.length}...` });
-      externalValidationResults = await validateExternalLinks(slicedExternalUrls, sitemapLogCallback, () => crawlState.status === 'idle');
+      externalValidationResults = await validateExternalLinks(slicedExternalUrls, sitemapLogCallback);
     } else if (!checkExternal) {
       broadcastUpdate('progress_log', { message: 'Outbound external links verification skipped.' });
     } else {
