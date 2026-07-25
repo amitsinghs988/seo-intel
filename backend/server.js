@@ -48,13 +48,14 @@ app.post('/api/crawl/start', async (req, res) => {
   // Serverless can't synchronously crawl unlimited pages within the function's time
   // budget, so cap and enforce wall-clock deadlines that return partial results
   // safely (never a 504). Local/self-hosted runs honor the full requested count.
-  const VERCEL_PAGE_CAP = 200;
+  const VERCEL_PAGE_CAP = 500;
   const limit = process.env.VERCEL ? Math.min(requestedPages, VERCEL_PAGE_CAP) : requestedPages;
-  // Phase budgets (Vercel only): crawl ~25s, then leave room for external-link
-  // validation + duplicate analysis + response within the overall ~45s budget.
+  // Phase budgets (Vercel only) sized to the 60s function limit (vercel.json maxDuration):
+  // crawl up to ~42s, leaving room for external-link validation + duplicate analysis +
+  // response within the overall ~52s budget. Deadlines return partial results, never a 504.
   const startedAt = Date.now();
-  const overallDeadline = startedAt + 45000;
-  const crawlDeadline = process.env.VERCEL ? startedAt + 25000 : null;
+  const overallDeadline = startedAt + 52000;
+  const crawlDeadline = process.env.VERCEL ? startedAt + 42000 : null;
 
   if (!url) {
     return res.status(400).json({ error: 'URL is required' });
