@@ -143,8 +143,34 @@ export default function Dashboard({ summary, nearDuplicates = [], pages = [], on
     document.body.removeChild(link);
   };
 
+  // Crawl-scope note: explain when fewer pages were crawled than the site has / was requested
+  const scopeNote = (() => {
+    const reason = summary.crawlStoppedReason;
+    if (reason === 'time-limit') {
+      return { level: 'warning', text: `Crawl stopped at ${totalPages} pages after hitting the serverless time budget. The site has more pages — deploy with a higher function limit, or scan a specific section, to go deeper.` };
+    }
+    if (summary.crawlCapped) {
+      return { level: 'info', text: `You requested ${summary.crawlRequestedPages} pages; this hosted deployment scans up to ${summary.crawlPageLimit} per run. ${totalPages} pages were crawled.` };
+    }
+    if (reason === 'page-limit') {
+      return { level: 'info', text: `Reached your ${summary.crawlPageLimit || totalPages}-page limit — the site has more pages. Raise "Max Pages to Crawl" to scan more.` };
+    }
+    return null;
+  })();
+
   return (
     <div className="dashboard-summary">
+      {scopeNote && (
+        <div className="glass-card animate-fade-in" style={{
+          padding: '0.85rem 1.1rem', marginBottom: '1.25rem', fontSize: '0.85rem',
+          display: 'flex', alignItems: 'center', gap: '0.6rem',
+          borderLeft: `4px solid ${scopeNote.level === 'warning' ? 'var(--color-warning)' : 'var(--color-primary)'}`
+        }}>
+          <span style={{ fontSize: '1.1rem' }}>{scopeNote.level === 'warning' ? '⏱️' : 'ℹ️'}</span>
+          <span>{scopeNote.text}</span>
+        </div>
+      )}
+
       {/* --- Overall SEO Health Score --- */}
       {health && (
         <div className="seo-health-hero glass-card animate-fade-in">

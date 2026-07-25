@@ -44,7 +44,17 @@ app.post('/api/crawl/start', async (req, res) => {
   res.setHeader('Expires', '0');
 
   const { url, maxPages = 100, checkExternal = true } = req.body;
-  const limit = process.env.VERCEL ? Math.min(Number(maxPages) || 30, 30) : (Number(maxPages) || 100);
+  const requestedPages = Math.max(1, Number(maxPages) || 100);
+  // Serverless can't synchronously crawl unlimited pages within the function's time
+  // budget, so cap and enforce wall-clock deadlines that return partial results
+  // safely (never a 504). Local/self-hosted runs honor the full requested count.
+  const VERCEL_PAGE_CAP = 200;
+  const limit = process.env.VERCEL ? Math.min(requestedPages, VERCEL_PAGE_CAP) : requestedPages;
+  // Phase budgets (Vercel only): crawl ~25s, then leave room for external-link
+  // validation + duplicate analysis + response within the overall ~45s budget.
+  const startedAt = Date.now();
+  const overallDeadline = startedAt + 45000;
+  const crawlDeadline = process.env.VERCEL ? startedAt + 25000 : null;
 
   if (!url) {
     return res.status(400).json({ error: 'URL is required' });
@@ -109,7 +119,7 @@ app.post('/api/crawl/start', async (req, res) => {
 
     // Step 2: Internal Crawler
     broadcastUpdate('progress_log', { message: 'Starting internal page crawler...' });
-    const rawPages = await crawlWebsite(url, limit, sitemapUrls, (progressEvent) => {
+    const { pages: rawPages, stoppedReason } = await crawlWebsite(url, limit, sitemapUrls, (progressEvent) => {
       if (progressEvent.type === 'progress') {
         crawlState.progress = progressEvent.data;
         broadcastUpdate('progress', progressEvent.data);
@@ -118,7 +128,7 @@ app.post('/api/crawl/start', async (req, res) => {
       } else if (progressEvent.type === 'progress_log') {
         broadcastUpdate('progress_log', { message: progressEvent.message });
       }
-    }, isCancelled);
+    }, isCancelled, crawlDeadline);
 
     if (isCancelled()) {
       if (!res.headersSent) res.json({ message: 'Crawl cancelled', state: getSanitizedState() });
@@ -144,7 +154,9 @@ app.post('/api/crawl/start', async (req, res) => {
       // Cap at 20 links for fast serverless execution
       const slicedExternalUrls = uniqueExternalUrls.slice(0, 20);
       broadcastUpdate('progress_log', { message: `Found ${uniqueExternalUrls.length} unique external links. Verifying top ${slicedExternalUrls.length}...` });
-      externalValidationResults = await validateExternalLinks(slicedExternalUrls, sitemapLogCallback, isCancelled);
+      // Bound this phase too, so a slow batch of external links can't blow the overall budget.
+      const externalGuard = () => isCancelled() || (!!process.env.VERCEL && Date.now() > overallDeadline);
+      externalValidationResults = await validateExternalLinks(slicedExternalUrls, sitemapLogCallback, externalGuard);
     } else if (!checkExternal) {
       broadcastUpdate('progress_log', { message: 'Outbound external links verification skipped.' });
     } else {
@@ -239,7 +251,12 @@ app.post('/api/crawl/start', async (req, res) => {
       brokenInternalLinksCount: brokenInternalLinks.length,
       brokenInternalLinks,
       brokenExternalLinksCount: brokenExternalLinks.length,
-      brokenExternalLinks
+      brokenExternalLinks,
+      // Crawl scope metadata — lets the UI explain when fewer pages were crawled than requested
+      crawlStoppedReason: stoppedReason,       // 'completed' | 'page-limit' | 'time-limit' | 'cancelled'
+      crawlRequestedPages: requestedPages,
+      crawlPageLimit: limit,
+      crawlCapped: limit < requestedPages
     };
 
     crawlState.status = 'completed';

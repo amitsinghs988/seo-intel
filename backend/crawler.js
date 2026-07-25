@@ -575,205 +575,115 @@ export async function validateExternalLinks(externalUrls, onUpdate, checkCancell
 }
 
 /**
- * Crawls a website starting from seedUrl up to maxPages.
+ * Fetches and parses a single page. Pure with respect to crawl bookkeeping — it
+ * returns the page record, its extracted links, and the final (post-redirect) URL,
+ * so many of these can run concurrently and the caller merges results synchronously.
  */
-export async function crawlWebsite(seedUrl, maxPages = 100, preDiscoveredUrls = [], onUpdate, checkCancelled) {
-  let normalizedSeed = normalizeUrl(seedUrl);
-  if (!normalizedSeed) {
-    throw new Error('Invalid seed URL');
-  }
+async function fetchAndParsePage(currentUrl, domain, protocol) {
+  const startTime = Date.now();
+  try {
+    const response = await fetch(currentUrl, {
+      headers: getHeadersForUrl(currentUrl),
+      redirect: 'follow',
+      signal: AbortSignal.timeout(12000)
+    });
+    storeCookiesFromResponse(currentUrl, response);
+    const loadTimeMs = Date.now() - startTime;
+    const status = response.status;
+    const finalUrl = response.url || currentUrl;
 
-  // Security Add-on: Validate URL safety against SSRF and unsupported protocols
-  const safety = await validateUrlSafety(normalizedSeed);
-  if (!safety.ok) {
-    throw new Error(safety.error);
-  }
-
-  // Clear cookie jar for the new session crawl
-  cookieJar.clear();
-
-  const seedParsed = new URL(normalizedSeed);
-  const domain = seedParsed.hostname;
-
-  const visited = new Set();
-  const queue = [normalizedSeed];
-  const pages = [];
-  
-  let crawledCount = 0;
-
-  const discovered = new Set([normalizedSeed]);
-
-  for (const url of preDiscoveredUrls) {
-    if (discovered.size >= maxPages) break;
-    const norm = normalizeUrl(url);
-    if (norm && !discovered.has(norm)) {
-      discovered.add(norm);
-      queue.push(norm);
+    if (!response.ok) {
+      return {
+        finalUrl,
+        links: [],
+        page: { url: currentUrl, title: `Error ${status}`, text: '', wordCount: 0, loadTimeMs, status, sizeBytes: 0, links: [], error: `HTTP status ${status}` }
+      };
     }
-  }
 
-  onUpdate({
-    type: 'progress_log',
-    message: `Crawler queue initialized with ${queue.length} pages.`
-  });
-
-  while (queue.length > 0 && crawledCount < maxPages) {
-    if (checkCancelled && checkCancelled()) {
-      break;
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('text/html')) {
+      return {
+        finalUrl,
+        links: [],
+        page: { url: currentUrl, title: contentType.split(';')[0] || 'Non-HTML Resource', text: '', wordCount: 0, loadTimeMs, status, sizeBytes: parseInt(response.headers.get('content-length') || '0', 10), links: [], error: null }
+      };
     }
-    const currentUrl = queue.shift();
-    visited.add(currentUrl);
 
-    onUpdate({
-      type: 'progress',
-      data: {
-        currentUrl,
-        crawledCount,
-        queueLength: queue.length,
-        pagesFoundCount: discovered.size
+    const html = await response.text();
+    const sizeBytes = Buffer.byteLength(html, 'utf8');
+    const $ = cheerio.load(html);
+
+    const title = $('title').text().trim() || 'Untitled Page';
+    const metaDescription = $('meta[name="description"]').attr('content') || $('meta[property="og:description"]').attr('content') || '';
+    const canonicalUrl = $('link[rel="canonical"]').attr('href') || '';
+    const h1Count = $('h1').length;
+    const h2Count = $('h2').length;
+    const h3Count = $('h3').length;
+    const robots = $('meta[name="robots"]').attr('content') || '';
+    const imageCount = $('img').length;
+    const missingAltCount = $('img:not([alt]), img[alt=""]').length;
+    const hasViewport = $('meta[name="viewport"]').length > 0;
+
+    // Extract JSON-LD schema markup types
+    const schemas = [];
+    $('script[type="application/ld+json"]').each((_, el) => {
+      try {
+        const jsonText = $(el).html();
+        if (jsonText) {
+          const parsed = JSON.parse(jsonText.trim());
+          if (Array.isArray(parsed)) {
+            parsed.forEach(item => {
+              if (item['@type']) schemas.push(item['@type']);
+            });
+          } else if (parsed && parsed['@type']) {
+            schemas.push(parsed['@type']);
+          }
+        }
+      } catch (e) {}
+    });
+
+    const pageLinks = [];
+    $('a[href]').each((_, el) => {
+      const rawHref = $(el).attr('href');
+      if (!rawHref || rawHref.startsWith('javascript:') || rawHref.startsWith('mailto:') || rawHref.startsWith('tel:')) {
+        return;
+      }
+
+      let resolved = normalizeUrl(rawHref, currentUrl);
+      if (resolved) {
+        try {
+          const resolvedParsed = new URL(resolved);
+          const isExternal = resolvedParsed.hostname !== domain;
+
+          // Enforce unified protocol for internal links to prevent duplicate crawls
+          if (!isExternal) {
+            resolvedParsed.protocol = protocol;
+            resolved = resolvedParsed.toString();
+            if (resolved.endsWith('/') && resolvedParsed.pathname !== '/') {
+              resolved = resolved.slice(0, -1);
+            }
+          }
+
+          pageLinks.push({ raw: rawHref, resolved, isExternal });
+        } catch (e) {}
       }
     });
 
-    const startTime = Date.now();
-    try {
-      const response = await fetch(currentUrl, {
-        headers: getHeadersForUrl(currentUrl),
-        redirect: 'follow'
-      });
-      storeCookiesFromResponse(currentUrl, response);
+    const contentDom = cheerio.load(html);
+    contentDom('script, style, noscript, iframe, svg, header, footer, nav, aside, [role="banner"], [role="navigation"], [role="contentinfo"]').remove();
+    contentDom('#header, .header, #footer, .footer, #navigation, .navigation, #sidebar, .sidebar, #menu, .menu').remove();
 
-      if (crawledCount === 0 && response.url && response.url !== currentUrl) {
-        try {
-          const finalParsed = new URL(response.url);
-          if (finalParsed.hostname.endsWith(domain)) {
-            seedParsed.protocol = finalParsed.protocol;
-          }
-        } catch (e) {}
-      }
+    let formattedText = toFormattedText(contentDom('body')[0], cheerio);
+    const cleanText = formattedText
+      .replace(/[ \t]+/g, ' ')
+      .replace(/\n\s*\n/g, '\n\n')
+      .trim();
+    const wordCount = cleanText ? cleanText.split(/\s+/).length : 0;
 
-      const loadTimeMs = Date.now() - startTime;
-      const status = response.status;
-
-      if (!response.ok) {
-        pages.push({
-          url: currentUrl,
-          title: `Error ${status}`,
-          text: '',
-          wordCount: 0,
-          loadTimeMs,
-          status,
-          sizeBytes: 0,
-          links: [],
-          error: `HTTP status ${status}`
-        });
-        crawledCount++;
-        onUpdate({
-          type: 'page_crawled',
-          data: { url: currentUrl, title: `Error ${status}`, status, wordCount: 0, loadTimeMs }
-        });
-        continue;
-      }
-
-      const contentType = response.headers.get('content-type') || '';
-      if (!contentType.includes('text/html')) {
-        pages.push({
-          url: currentUrl,
-          title: contentType.split(';')[0] || 'Non-HTML Resource',
-          text: '',
-          wordCount: 0,
-          loadTimeMs,
-          status,
-          sizeBytes: parseInt(response.headers.get('content-length') || '0', 10),
-          links: [],
-          error: null
-        });
-        crawledCount++;
-        continue;
-      }
-
-      const html = await response.text();
-      const sizeBytes = Buffer.byteLength(html, 'utf8');
-      const $ = cheerio.load(html);
-
-      const title = $('title').text().trim() || 'Untitled Page';
-      const metaDescription = $('meta[name="description"]').attr('content') || $('meta[property="og:description"]').attr('content') || '';
-      const canonicalUrl = $('link[rel="canonical"]').attr('href') || '';
-      const h1Count = $('h1').length;
-      const h2Count = $('h2').length;
-      const h3Count = $('h3').length;
-      const robots = $('meta[name="robots"]').attr('content') || '';
-      const imageCount = $('img').length;
-      const missingAltCount = $('img:not([alt]), img[alt=""]').length;
-      const hasViewport = $('meta[name="viewport"]').length > 0;
-
-      // Extract JSON-LD schema markup types
-      const schemas = [];
-      $('script[type="application/ld+json"]').each((_, el) => {
-        try {
-          const jsonText = $(el).html();
-          if (jsonText) {
-            const parsed = JSON.parse(jsonText.trim());
-            if (Array.isArray(parsed)) {
-              parsed.forEach(item => {
-                if (item['@type']) schemas.push(item['@type']);
-              });
-            } else if (parsed && parsed['@type']) {
-              schemas.push(parsed['@type']);
-            }
-          }
-        } catch (e) {}
-      });
-
-      const pageLinks = [];
-      $('a[href]').each((_, el) => {
-        const rawHref = $(el).attr('href');
-        if (!rawHref || rawHref.startsWith('javascript:') || rawHref.startsWith('mailto:') || rawHref.startsWith('tel:')) {
-          return;
-        }
-
-        let resolved = normalizeUrl(rawHref, currentUrl);
-        if (resolved) {
-          try {
-            const resolvedParsed = new URL(resolved);
-            const isExternal = resolvedParsed.hostname !== domain;
-
-            // Enforce unified protocol for internal links to prevent duplicate crawls
-            if (!isExternal) {
-              resolvedParsed.protocol = seedParsed.protocol;
-              resolved = resolvedParsed.toString();
-              if (resolved.endsWith('/') && resolvedParsed.pathname !== '/') {
-                resolved = resolved.slice(0, -1);
-              }
-            }
-
-            pageLinks.push({
-              raw: rawHref,
-              resolved,
-              isExternal
-            });
-
-            if (!isExternal && !discovered.has(resolved)) {
-              if (discovered.size < maxPages) {
-                discovered.add(resolved);
-                queue.push(resolved);
-              }
-            }
-          } catch (e) {}
-        }
-      });
-
-      const contentDom = cheerio.load(html);
-      contentDom('script, style, noscript, iframe, svg, header, footer, nav, aside, [role="banner"], [role="navigation"], [role="contentinfo"]').remove();
-      contentDom('#header, .header, #footer, .footer, #navigation, .navigation, #sidebar, .sidebar, #menu, .menu').remove();
-
-      let formattedText = toFormattedText(contentDom('body')[0], cheerio);
-      const cleanText = formattedText
-        .replace(/[ \t]+/g, ' ')
-        .replace(/\n\s*\n/g, '\n\n')
-        .trim();
-      const wordCount = cleanText ? cleanText.split(/\s+/).length : 0;
-
-      pages.push({
+    return {
+      finalUrl,
+      links: pageLinks,
+      page: {
         url: currentUrl,
         title,
         text: cleanText,
@@ -793,63 +703,160 @@ export async function crawlWebsite(seedUrl, maxPages = 100, preDiscoveredUrls = 
         imageCount,
         missingAltCount,
         hasViewport
-      });
+      }
+    };
+  } catch (err) {
+    const loadTimeMs = Date.now() - startTime;
+    return {
+      finalUrl: currentUrl,
+      links: [],
+      page: { url: currentUrl, title: 'Network Error', text: '', wordCount: 0, loadTimeMs, status: 0, sizeBytes: 0, links: [], error: err.message }
+    };
+  }
+}
 
-      crawledCount++;
-
-      onUpdate({
-        type: 'page_crawled',
-        data: {
-          url: currentUrl,
-          title,
-          status,
-          wordCount,
-          loadTimeMs
-        }
-      });
-
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-    } catch (err) {
-      const loadTimeMs = Date.now() - startTime;
-      pages.push({
-        url: currentUrl,
-        title: 'Network Error',
-        text: '',
-        wordCount: 0,
-        loadTimeMs,
-        status: 0,
-        sizeBytes: 0,
-        links: [],
-        error: err.message
-      });
-      crawledCount++;
-
-      onUpdate({
-        type: 'page_crawled',
-        data: {
-          url: currentUrl,
-          title: 'Network Error',
-          status: 0,
-          wordCount: 0,
-          loadTimeMs,
-          error: err.message
-        }
-      });
-    }
+/**
+ * Crawls a website starting from seedUrl. Pages are fetched CONCURRENTLY in batches
+ * for throughput, honoring maxPages, an optional wall-clock deadline (so a serverless
+ * invocation returns partial results instead of timing out), and cancellation.
+ * Returns { pages, stoppedReason } where stoppedReason is one of
+ * 'completed' | 'page-limit' | 'time-limit' | 'cancelled'.
+ */
+export async function crawlWebsite(seedUrl, maxPages = 100, preDiscoveredUrls = [], onUpdate, checkCancelled, deadline = null) {
+  const normalizedSeed = normalizeUrl(seedUrl);
+  if (!normalizedSeed) {
+    throw new Error('Invalid seed URL');
   }
 
-  // Emit a final progress snapshot so the UI reflects the true crawled count
-  // (per-iteration progress is emitted before the page is processed, lagging by one).
-  onUpdate({
-    type: 'progress',
-    data: {
-      currentUrl: '',
-      crawledCount,
-      queueLength: queue.length,
-      pagesFoundCount: discovered.size
+  // Security Add-on: Validate URL safety against SSRF and unsupported protocols
+  const safety = await validateUrlSafety(normalizedSeed);
+  if (!safety.ok) {
+    throw new Error(safety.error);
+  }
+
+  // Clear cookie jar for the new session crawl
+  cookieJar.clear();
+
+  const seedParsed = new URL(normalizedSeed);
+  const domain = seedParsed.hostname;
+
+  const visited = new Set();
+  const queue = [];
+  const pages = [];
+  const discovered = new Set([normalizedSeed]);
+  let crawledCount = 0;
+  let stoppedReason = 'completed';
+
+  // Fetch several pages at once. Higher on serverless where each invocation has a
+  // tight wall-clock budget and needs to cover more ground per second.
+  const CONCURRENCY = process.env.VERCEL ? 8 : 6;
+
+  let sawMoreLinks = false; // internal links we skipped because the discovery cap was reached
+  const enqueueLinks = (links) => {
+    for (const lnk of links) {
+      if (!lnk.isExternal && !discovered.has(lnk.resolved)) {
+        if (discovered.size < maxPages) {
+          discovered.add(lnk.resolved);
+          queue.push(lnk.resolved);
+        } else {
+          sawMoreLinks = true;
+        }
+      }
     }
+  };
+
+  const emitPageCrawled = (page) => {
+    onUpdate({
+      type: 'page_crawled',
+      data: {
+        url: page.url,
+        title: page.title,
+        status: page.status,
+        wordCount: page.wordCount,
+        loadTimeMs: page.loadTimeMs,
+        error: page.error || undefined
+      }
+    });
+  };
+
+  const emitProgress = (currentUrl = '') => {
+    onUpdate({
+      type: 'progress',
+      data: {
+        currentUrl,
+        crawledCount,
+        queueLength: queue.length,
+        pagesFoundCount: discovered.size
+      }
+    });
+  };
+
+  onUpdate({
+    type: 'progress_log',
+    message: `Crawler starting (up to ${maxPages} pages, ${CONCURRENCY} concurrent fetches)...`
   });
 
-  return pages;
+  // 1. Crawl the seed first (sequentially) to lock in the real protocol after redirects
+  //    before its links are resolved and before concurrent workers start.
+  visited.add(normalizedSeed);
+  emitProgress(normalizedSeed);
+  const seedResult = await fetchAndParsePage(normalizedSeed, domain, seedParsed.protocol);
+  if (seedResult.finalUrl && seedResult.finalUrl !== normalizedSeed) {
+    try {
+      const finalParsed = new URL(seedResult.finalUrl);
+      if (finalParsed.hostname.endsWith(domain)) {
+        seedParsed.protocol = finalParsed.protocol;
+      }
+    } catch (e) {}
+  }
+  pages.push(seedResult.page);
+  crawledCount++;
+  emitPageCrawled(seedResult.page);
+  enqueueLinks(seedResult.links);
+
+  // Seed the queue with sitemap-discovered URLs (after the homepage's own links).
+  for (const url of preDiscoveredUrls) {
+    if (discovered.size >= maxPages) break;
+    const norm = normalizeUrl(url);
+    if (norm && !discovered.has(norm)) {
+      discovered.add(norm);
+      queue.push(norm);
+    }
+  }
+  emitProgress();
+
+  // 2. Crawl the remaining queue concurrently in batches.
+  while (queue.length > 0 && crawledCount < maxPages) {
+    if (checkCancelled && checkCancelled()) { stoppedReason = 'cancelled'; break; }
+    if (deadline && Date.now() > deadline) { stoppedReason = 'time-limit'; break; }
+
+    const batch = [];
+    while (batch.length < CONCURRENCY && queue.length > 0 && (crawledCount + batch.length) < maxPages) {
+      const u = queue.shift();
+      if (u && !visited.has(u)) {
+        visited.add(u);
+        batch.push(u);
+      }
+    }
+    if (batch.length === 0) break; // queue only had already-visited URLs left
+
+    const results = await Promise.all(batch.map(u => fetchAndParsePage(u, domain, seedParsed.protocol)));
+    for (const r of results) {
+      pages.push(r.page);
+      crawledCount++;
+      emitPageCrawled(r.page);
+      enqueueLinks(r.links);
+    }
+    emitProgress();
+  }
+
+  // Distinguish "crawled the whole site" from "hit the requested page limit".
+  if (stoppedReason === 'completed' && crawledCount >= maxPages && (queue.length > 0 || sawMoreLinks)) {
+    stoppedReason = 'page-limit';
+  }
+
+  // Final accurate progress snapshot.
+  emitProgress();
+
+  return { pages, stoppedReason };
 }
