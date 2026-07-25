@@ -417,8 +417,10 @@ export default function App() {
     if (!url) return;
 
     let cleanUrl = url.trim();
+    // Default bare domains to https:// (virtually all sites are HTTPS today; the
+    // crawler falls back to http:// for the rare http-only site).
     if (!/^https?:\/\//i.test(cleanUrl)) {
-      cleanUrl = 'http://' + cleanUrl;
+      cleanUrl = 'https://' + cleanUrl;
     }
     setUrl(cleanUrl);
 

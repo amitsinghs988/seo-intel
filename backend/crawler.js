@@ -723,7 +723,7 @@ async function fetchAndParsePage(currentUrl, domain, protocol) {
  * 'completed' | 'page-limit' | 'time-limit' | 'cancelled'.
  */
 export async function crawlWebsite(seedUrl, maxPages = 100, preDiscoveredUrls = [], onUpdate, checkCancelled, deadline = null) {
-  const normalizedSeed = normalizeUrl(seedUrl);
+  let normalizedSeed = normalizeUrl(seedUrl);
   if (!normalizedSeed) {
     throw new Error('Invalid seed URL');
   }
@@ -737,7 +737,7 @@ export async function crawlWebsite(seedUrl, maxPages = 100, preDiscoveredUrls = 
   // Clear cookie jar for the new session crawl
   cookieJar.clear();
 
-  const seedParsed = new URL(normalizedSeed);
+  let seedParsed = new URL(normalizedSeed);
   const domain = seedParsed.hostname;
 
   const visited = new Set();
@@ -800,7 +800,25 @@ export async function crawlWebsite(seedUrl, maxPages = 100, preDiscoveredUrls = 
   //    before its links are resolved and before concurrent workers start.
   visited.add(normalizedSeed);
   emitProgress(normalizedSeed);
-  const seedResult = await fetchAndParsePage(normalizedSeed, domain, seedParsed.protocol);
+  let seedResult = await fetchAndParsePage(normalizedSeed, domain, seedParsed.protocol);
+
+  // http-only fallback: if an https:// seed can't connect at all, retry over http://
+  // (covers the rare legacy site that has no HTTPS at all).
+  if (seedResult.page.status === 0 && normalizedSeed.startsWith('https://')) {
+    const httpSeed = 'http://' + normalizedSeed.slice('https://'.length);
+    const retry = await fetchAndParsePage(httpSeed, domain, 'http:');
+    if (retry.page.status !== 0) {
+      onUpdate({ type: 'progress_log', message: 'HTTPS unavailable — falling back to HTTP for this site.' });
+      visited.delete(normalizedSeed);
+      discovered.delete(normalizedSeed);
+      normalizedSeed = httpSeed;
+      seedParsed = new URL(normalizedSeed);
+      visited.add(normalizedSeed);
+      discovered.add(normalizedSeed);
+      seedResult = retry;
+    }
+  }
+
   if (seedResult.finalUrl && seedResult.finalUrl !== normalizedSeed) {
     try {
       const finalParsed = new URL(seedResult.finalUrl);

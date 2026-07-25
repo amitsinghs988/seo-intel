@@ -169,9 +169,6 @@ export default function DuplicateDetail({ pageData, pages = [], initialTab, onTa
     return Math.min(100, Math.round(score));
   }, [liveText, lsiKeywords, lsiCounts, title]);
 
-  const [pdfLoading, setPdfLoading] = useState(false);
-  const [pdfProgress, setPdfProgress] = useState('');
-
   // States for sub-tab fix consoles
   const [fixIndex, setFixIndex] = useState(null);
   const [copiedIndex, setCopiedIndex] = useState(null);
@@ -323,29 +320,24 @@ export default function DuplicateDetail({ pageData, pages = [], initialTab, onTa
     );
   }
 
-  const handleExportFullPDF = async () => {
+  const handleExportFullPDF = () => {
+    // Open the print window synchronously inside the click handler so the browser does
+    // not block it as an unsolicited pop-up. (The old code awaited fetches first, which
+    // detached window.open from the user gesture — the main reason export "did nothing".)
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert('Please allow pop-ups for this site, then click "Export Full PDF Audit Report" again.');
+      return;
+    }
+    printWindow.document.write('<!doctype html><meta charset="utf-8"><title>Preparing report…</title><body style="font:15px system-ui,-apple-system,sans-serif;padding:2rem;color:#334155">Preparing your PDF audit report…</body>');
+
     try {
-      setPdfLoading(true);
+      // Build from the already-loaded in-memory crawl results. /api/crawl/page is not
+      // available after a serverless crawl completes (per-invocation memory is gone).
       const duplicateMatches = matchStats.filter(m => m.dupWordCount > 0);
-      const compiledData = [];
-
-      for (let i = 0; i < duplicateMatches.length; i++) {
-        const match = duplicateMatches[i];
-        setPdfProgress(`Fetching duplicate page content (${i + 1}/${duplicateMatches.length}): ${match.url}`);
-        const res = await fetch(`/api/crawl/page?url=${encodeURIComponent(match.url)}`);
-        if (res.ok) {
-          const data = await res.json();
-          compiledData.push(data);
-        }
-      }
-
-      setPdfProgress('Compiling report document...');
-      
-      const printWindow = window.open('', '_blank');
-      if (!printWindow) {
-        alert('Please allow popups to export the PDF report.');
-        return;
-      }
+      const compiledData = duplicateMatches
+        .map(m => (pages || []).find(p => p.url === m.url))
+        .filter(Boolean);
 
       const escapeHtml = (str) => {
         return (str || '')
@@ -526,10 +518,8 @@ export default function DuplicateDetail({ pageData, pages = [], initialTab, onTa
       printWindow.document.write(html);
       printWindow.document.close();
     } catch (err) {
-      alert('Failed to generate PDF: ' + err.message);
-    } finally {
-      setPdfLoading(false);
-      setPdfProgress('');
+      try { printWindow.close(); } catch (e) { /* ignore */ }
+      alert('Failed to generate PDF report: ' + err.message);
     }
   };
 
@@ -1350,14 +1340,6 @@ export default function DuplicateDetail({ pageData, pages = [], initialTab, onTa
 
   return (
     <div className="duplicate-detail-layout animate-fade-in">
-      {pdfLoading && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999, color: 'white', flexDirection: 'column', gap: '1rem' }}>
-          <div className="crawler-spinner" style={{ borderColor: 'white', borderTopColor: 'transparent', width: '3rem', height: '3rem' }}></div>
-          <div style={{ fontWeight: 'bold', fontSize: '1.25rem', letterSpacing: '0.025em', textShadow: '0 2px 4px rgba(0,0,0,0.2)' }}>{pdfProgress}</div>
-          <div style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Please wait, preparing a unified PDF audit report...</div>
-        </div>
-      )}
-
       {/* Header Panel */}
       <div className="detail-header-panel glass-card">
         <div className="header-meta" style={{ width: '100%' }}>
@@ -1375,18 +1357,17 @@ export default function DuplicateDetail({ pageData, pages = [], initialTab, onTa
             
             <button
               onClick={handleExportFullPDF}
-              disabled={pdfLoading}
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: '0.5rem',
                 padding: '0.45rem 1.1rem',
-                background: pdfLoading ? '#cbd5e1' : 'linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)',
+                background: 'linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)',
                 color: 'white',
                 border: 'none',
                 borderRadius: '6px',
                 fontWeight: 600,
-                cursor: pdfLoading ? 'not-allowed' : 'pointer',
+                cursor: 'pointer',
                 fontSize: '0.85rem',
                 boxShadow: '0 4px 12px rgba(239, 68, 68, 0.25)',
                 transition: 'all 0.2s ease'
