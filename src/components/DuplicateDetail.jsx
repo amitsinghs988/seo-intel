@@ -321,16 +321,6 @@ export default function DuplicateDetail({ pageData, pages = [], initialTab, onTa
   }
 
   const handleExportFullPDF = () => {
-    // Open the print window synchronously inside the click handler so the browser does
-    // not block it as an unsolicited pop-up. (The old code awaited fetches first, which
-    // detached window.open from the user gesture — the main reason export "did nothing".)
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      alert('Please allow pop-ups for this site, then click "Export Full PDF Audit Report" again.');
-      return;
-    }
-    printWindow.document.write('<!doctype html><meta charset="utf-8"><title>Preparing report…</title><body style="font:15px system-ui,-apple-system,sans-serif;padding:2rem;color:#334155">Preparing your PDF audit report…</body>');
-
     try {
       // Build from the already-loaded in-memory crawl results. /api/crawl/page is not
       // available after a serverless crawl completes (per-invocation memory is gone).
@@ -502,23 +492,37 @@ export default function DuplicateDetail({ pageData, pages = [], initialTab, onTa
           </div>
 
           ${matchingPagesHtml}
-
-          <script>
-            window.onload = function() {
-              setTimeout(function() {
-                window.print();
-              }, 500);
-            };
-          </script>
         </body>
         </html>
       `;
 
-      printWindow.document.open();
-      printWindow.document.write(html);
-      printWindow.document.close();
+      // Render into an off-screen iframe and print it. Unlike window.open (a pop-up,
+      // which browsers/extensions frequently block), an iframe always works — this is
+      // the reliable path to the browser's "Save as PDF" dialog.
+      const iframe = document.createElement('iframe');
+      iframe.setAttribute('aria-hidden', 'true');
+      iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+      document.body.appendChild(iframe);
+
+      const doc = iframe.contentWindow.document;
+      doc.open();
+      doc.write(html);
+      doc.close();
+
+      const cleanup = () => { try { iframe.remove(); } catch (e) { /* ignore */ } };
+      // Give the browser a beat to lay the report out, then open the print/save dialog.
+      setTimeout(() => {
+        try {
+          iframe.contentWindow.focus();
+          iframe.contentWindow.onafterprint = cleanup;
+          iframe.contentWindow.print();
+          setTimeout(cleanup, 120000); // fallback cleanup if onafterprint never fires
+        } catch (e) {
+          cleanup();
+          alert('Could not open the print dialog: ' + e.message);
+        }
+      }, 400);
     } catch (err) {
-      try { printWindow.close(); } catch (e) { /* ignore */ }
       alert('Failed to generate PDF report: ' + err.message);
     }
   };
