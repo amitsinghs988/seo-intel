@@ -106,21 +106,31 @@ export default function App() {
     }
   };
 
-  // Persist completed crawl state to localStorage
+  // Persist completed crawl state to localStorage (so a refresh restores the report).
   useEffect(() => {
     if (crawlState.status === 'completed' && Array.isArray(crawlState.pages) && crawlState.pages.length > 0) {
+      const base = {
+        status: 'completed',
+        targetUrl: crawlState.targetUrl,
+        progress: crawlState.progress,
+        summary: crawlState.summary,
+        nearDuplicates: crawlState.nearDuplicates,
+        siteSignals: crawlState.siteSignals || null
+      };
+      const store = (pages) => localStorage.setItem('seointel_crawl_state', JSON.stringify({ ...base, pages }));
       try {
-        localStorage.setItem('seointel_crawl_state', JSON.stringify({
-          status: 'completed',
-          targetUrl: crawlState.targetUrl,
-          progress: crawlState.progress,
-          summary: crawlState.summary,
-          pages: crawlState.pages,
-          nearDuplicates: crawlState.nearDuplicates,
-          siteSignals: crawlState.siteSignals || null
-        }));
+        store(crawlState.pages);
       } catch (e) {
-        console.error('Failed to cache crawl state to localStorage:', e);
+        // Large crawls (hundreds of pages) can exceed the ~5MB localStorage quota.
+        // Fall back to a lighter copy without the heavy per-page text/blocks so the
+        // report still survives a refresh (minus the per-page duplicate deep-dive).
+        try {
+          store(crawlState.pages.map(p => ({ ...p, text: '', blocks: [] })));
+        } catch (e2) {
+          // Even the light copy doesn't fit — clear any stale cache and skip quietly.
+          // (The in-memory report is unaffected; only cross-refresh persistence is lost.)
+          try { localStorage.removeItem('seointel_crawl_state'); } catch (e3) { /* ignore */ }
+        }
       }
     }
   }, [crawlState]);
