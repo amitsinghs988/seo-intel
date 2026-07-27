@@ -324,12 +324,32 @@ export default function DuplicateDetail({ pageData, pages = [], initialTab, onTa
     try {
       // Build from the already-loaded in-memory crawl results. /api/crawl/page is not
       // available after a serverless crawl completes (per-invocation memory is gone).
+      // Cap the report: a large crawl can have hundreds of matching pages, and rendering
+      // + printing every page's full text produces a multi-MB document that crashes the
+      // print renderer (the iframe shares the main tab's process). Top matches only.
+      const MAX_MATCH_PAGES = 25;   // most-duplicated pages to include in the report
+      const MAX_TEXT_CHARS = 15000; // truncate very long page text per section
       const duplicateMatches = matchStats.filter(m => m.dupWordCount > 0);
+      const totalMatchCount = duplicateMatches.length;
       const compiledData = duplicateMatches
+        .slice(0, MAX_MATCH_PAGES)
         .map(m => (pages || []).find(p => p.url === m.url))
         .filter(Boolean);
+      const matchesTruncated = totalMatchCount > compiledData.length;
+
+      // Clamp text length (and drop out-of-range blocks) to bound the report size.
+      const clampContent = (txt, blks) => {
+        const t = txt || '';
+        if (t.length <= MAX_TEXT_CHARS) return { txt: t, blks: blks || [] };
+        const clipped = t.slice(0, MAX_TEXT_CHARS) + '\n\n… [content truncated for the report] …';
+        const blocks = (blks || [])
+          .filter(b => b.charStart < MAX_TEXT_CHARS)
+          .map(b => ({ ...b, charEnd: Math.min(b.charEnd, MAX_TEXT_CHARS) }));
+        return { txt: clipped, blks: blocks };
+      };
 
       const escapeHtml = (str) => {
+        return (str || '')
         return (str || '')
           .replace(/&/g, '&amp;')
           .replace(/</g, '&lt;')
@@ -393,11 +413,13 @@ export default function DuplicateDetail({ pageData, pages = [], initialTab, onTa
           .join('');
       };
 
-      const mainHighlightsHtml = renderHighlightedText(text, blocks);
+      const mainClamped = clampContent(text, blocks);
+      const mainHighlightsHtml = renderHighlightedText(mainClamped.txt, mainClamped.blks);
 
       const matchingPagesHtml = compiledData
         .map(match => {
-          const matchHighlightsHtml = renderHighlightedText(match.text, match.blocks);
+          const mc = clampContent(match.text, match.blocks);
+          const matchHighlightsHtml = renderHighlightedText(mc.txt, mc.blks);
           return `
             <div class="page-break" style="page-break-before: always; margin-top: 2rem; border-top: 2px solid #e5e7eb; padding-top: 2rem;">
               <h2 style="color: #b91c1c; font-size: 1.3rem; margin-bottom: 0.5rem;">Matching Duplicate Page Analysis</h2>
@@ -490,6 +512,8 @@ export default function DuplicateDetail({ pageData, pages = [], initialTab, onTa
           <div style="line-height: 1.6; font-size: 0.95rem; text-align: justify; margin-top: 1rem; white-space: pre-wrap; word-break: break-word; color: #1f2937; margin-bottom: 2rem;">
             ${mainHighlightsHtml}
           </div>
+
+          ${matchesTruncated ? `<p style="margin-top:1rem;padding:0.75rem 1rem;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:0.85rem;color:#92400e;">Showing the top ${compiledData.length} most-duplicated pages of ${totalMatchCount} total matches. View the full list in the app's Matching Pages panel.</p>` : ''}
 
           ${matchingPagesHtml}
         </body>
